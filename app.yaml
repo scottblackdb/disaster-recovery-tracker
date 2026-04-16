@@ -1,0 +1,22 @@
+command:
+  - uvicorn
+  - backend.main:app
+  - --host
+  - 0.0.0.0
+  - --port
+  - "8000"
+
+env:
+  - name: DATABRICKS_HOST
+    value: "https://adb-3011697725699826.6.azuredatabricks.net"
+  - name: DATABRICKS_PROFILE
+    value: "DEFAULT"
+  - name: LLM_ENDPOINT
+    value: "databricks-llama-4-maverick"
+
+resources:
+  - name: disaster-recovery-lakebase
+    type: postgres
+    project: disaster-recovery
+    branch: production
+    endpoint: primary
