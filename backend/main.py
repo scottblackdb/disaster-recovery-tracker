@@ -552,17 +552,27 @@ def dashboard_stats():
 
 
 # --- Serve React Frontend ---
-# Check both "frontend/build" (local dev) and "static" (Docker)
-_project_root = os.path.dirname(os.path.dirname(__file__))
+# Search multiple candidate locations for the React build output.
+# - "frontend/build" relative to project root (local dev, Databricks Apps deploy)
+# - "frontend/build" relative to CWD (if uvicorn is launched from project root)
+# - "static" relative to project root (Docker image)
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = None
-for candidate in [os.path.join(_project_root, "frontend", "build"),
-                  os.path.join(_project_root, "static")]:
-    if os.path.isdir(candidate):
+for candidate in [
+    os.path.join(_project_root, "frontend", "build"),
+    os.path.join(os.getcwd(), "frontend", "build"),
+    os.path.join(_project_root, "static"),
+    os.path.join(os.getcwd(), "static"),
+]:
+    if os.path.isdir(candidate) and os.path.isfile(os.path.join(candidate, "index.html")):
         STATIC_DIR = candidate
         break
 
 if STATIC_DIR:
-    app.mount("/static", StaticFiles(directory=os.path.join(STATIC_DIR, "static")), name="static-assets")
+    _logger.info(f"Serving React frontend from {STATIC_DIR}")
+    _static_assets = os.path.join(STATIC_DIR, "static")
+    if os.path.isdir(_static_assets):
+        app.mount("/static", StaticFiles(directory=_static_assets), name="static-assets")
 
     @app.get("/{full_path:path}")
     async def serve_react(full_path: str):
@@ -571,6 +581,11 @@ if STATIC_DIR:
         if os.path.isfile(file_path):
             return FileResponse(file_path)
         return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+else:
+    _logger.warning(
+        "No React build found — frontend will not be served. "
+        "Run 'npm run build' in frontend/ or ensure frontend/build/ is deployed."
+    )
 
 
 if __name__ == "__main__":

@@ -144,5 +144,4 @@ __pycache__/
 .venv/
 *.egg-info/
 
-# App build
-frontend/build/
+# App build — frontend/build/ is committed so Databricks Apps can serve it
