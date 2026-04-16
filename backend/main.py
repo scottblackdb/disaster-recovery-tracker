@@ -36,7 +36,13 @@ from config import (
 )
 from databricks_auth import w
 
-_logger = logging.getLogger(__name__)
+_logger = logging.getLogger("backend")
+_logger.setLevel(logging.INFO)
+_logger.propagate = False
+if not _logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("INFO:     %(message)s"))
+    _logger.addHandler(_handler)
 from document_ai import (
     document_update_values_from_ai,
     extract_with_ai,
