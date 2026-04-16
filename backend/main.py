@@ -90,6 +90,7 @@ def _build_conninfo() -> str:
         if not user:
             me = w.current_user.me()
             user = me.user_name
+    _logger.info("Connecting to Lakebase as user=%s host=%s db=%s", user, host, PGDATABASE)
     return f"dbname={PGDATABASE} user={user} host={host} port={PGPORT} sslmode={PGSSLMODE}"
 
 
