@@ -46,7 +46,6 @@ if not _logger.handlers:
 from document_ai import (
     document_update_values_from_ai,
     extract_with_ai,
-    fetch_url_bytes,
     form_description_from_ai_result,
     raise_if_ai_processing_failed,
     read_upload_or_url_to_bytes,
@@ -460,7 +459,9 @@ def refine_claim_description(description: str = Form(...)):
 @app.post("/api/claims/{claim_id}/documents/url")
 async def upload_document_from_url(claim_id: int, url: str = Form(...)):
     """Fetch an image or document from a URL and process it with AI."""
-    content, file_name, content_type = await fetch_url_bytes(url)
+    content, file_name, content_type = await read_upload_or_url_to_bytes(
+        None, url, max_bytes=MAX_IMAGE_UPLOAD_BYTES
+    )
     return _insert_and_process_document(claim_id, content, file_name, content_type)
 
 
