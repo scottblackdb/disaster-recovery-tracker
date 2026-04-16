@@ -16,11 +16,7 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { fetchClaim, fetchCurrentUser, uploadDocument, uploadDocumentFromUrl, updateClaimStatus, getApiErrorMessage } from '../services/api';
 import { Claim, STATUS_LABELS } from '../types';
 import StatusChip from '../components/StatusChip';
-
-const formatCurrency = (val: number | null) =>
-  val != null
-    ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val)
-    : '—';
+import { formatCurrency } from '../utils/format';
 
 export default function ClaimDetail() {
   const { id } = useParams<{ id: string }>();

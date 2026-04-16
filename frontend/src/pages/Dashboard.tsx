@@ -10,9 +10,7 @@ import PendingIcon from '@mui/icons-material/Pending';
 import { fetchDashboardStats, getApiErrorMessage } from '../services/api';
 import { DashboardStats, STATUS_COLORS } from '../types';
 import StatusChip from '../components/StatusChip';
-
-const formatCurrency = (val: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(val);
+import { formatCurrency } from '../utils/format';
 
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);

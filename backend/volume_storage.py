@@ -3,8 +3,10 @@ import logging
 import uuid
 from typing import Optional
 
-from config import DATABRICKS_HOST, VOLUME_PATH
-from databricks_auth import get_auth_token
+from config import VOLUME_PATH
+from databricks_auth import get_auth_token, w
+
+_logger = logging.getLogger(__name__)
 
 
 def safe_volume_filename(file_name: str) -> str:
@@ -17,7 +19,7 @@ def _put_bytes_to_volume(volume_file_path: str, content: bytes) -> None:
     api_path = f"/api/2.0/fs/files{volume_file_path}"
     token = get_auth_token()
     resp = _httpx.put(
-        f"{DATABRICKS_HOST}{api_path}",
+        f"{w.config.host}{api_path}",
         headers={"Authorization": f"Bearer {token}"},
         content=content,
         timeout=60,
@@ -47,7 +49,7 @@ def try_stage_new_claim_image(content: bytes, file_name: str) -> Optional[str]:
     try:
         return upload_to_volume_new_claim_staging(content, file_name)
     except Exception as e:
-        logging.warning("Staging new-claim damage image to volume failed (continuing with AI only): %s", e)
+        _logger.warning("Staging new-claim damage image to volume failed (continuing with AI only): %s", e)
         return None
 
 
@@ -62,7 +64,7 @@ def download_from_volume(volume_path: str) -> tuple[bytes, str]:
     api_path = f"/api/2.0/fs/files{volume_path}"
     token = get_auth_token()
     resp = _httpx.get(
-        f"{DATABRICKS_HOST}{api_path}",
+        f"{w.config.host}{api_path}",
         headers={"Authorization": f"Bearer {token}"},
         timeout=60,
     )

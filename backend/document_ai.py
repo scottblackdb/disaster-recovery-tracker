@@ -9,16 +9,17 @@ from urllib.parse import urlparse
 from fastapi import HTTPException, UploadFile
 from openai import OpenAI
 
-from config import DATABRICKS_HOST, LLM_ENDPOINT, REFINE_LLM_ENDPOINT, MAX_IMAGE_UPLOAD_BYTES
-from databricks_auth import get_auth_token
+from config import LLM_ENDPOINT, REFINE_LLM_ENDPOINT, MAX_IMAGE_UPLOAD_BYTES
+from databricks_auth import get_auth_token, w
 
 
 def get_llm_client() -> OpenAI:
     token = get_auth_token()
-    return OpenAI(api_key=token, base_url=f"{DATABRICKS_HOST}/serving-endpoints")
+    return OpenAI(api_key=token, base_url=f"{w.config.host}/serving-endpoints")
 
 
-def _normalize_llm_text_content(raw_content: Any) -> str:
+def _normalize_llm_text(raw_content: Any) -> str:
+    """Extract plain text from an LLM response content (handles str, list-of-blocks, None)."""
     if raw_content is None:
         return ""
     if isinstance(raw_content, list):
@@ -29,6 +30,14 @@ def _normalize_llm_text_content(raw_content: Any) -> str:
     if isinstance(raw_content, str):
         return raw_content.strip()
     return str(raw_content).strip()
+
+
+def _parse_llm_response(response) -> str:
+    """Extract and clean text from a chat completion response (strips markdown fences)."""
+    text = _normalize_llm_text(response.choices[0].message.content)
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    return text
 
 
 def _ai_failure_payload(exc: Exception) -> dict:
@@ -99,11 +108,7 @@ Return ONLY valid JSON, no markdown.""",
             max_tokens=800,
         )
 
-        raw_content = response.choices[0].message.content
-        result_text = _normalize_llm_text_content(raw_content)
-        if result_text.startswith("```"):
-            result_text = result_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-        return json.loads(result_text)
+        return json.loads(_parse_llm_response(response))
     except Exception as e:
         return _ai_failure_payload(e)
 
@@ -207,8 +212,7 @@ async def read_upload_or_url_to_bytes(
 
 def refine_description(raw_description: str) -> str:
     """Use databricks-gpt-oss-120b to clean and clarify a damage description."""
-    token = get_auth_token()
-    client = OpenAI(api_key=token, base_url=f"{DATABRICKS_HOST}/serving-endpoints")
+    client = get_llm_client()
 
     response = client.chat.completions.create(
         model=REFINE_LLM_ENDPOINT,
@@ -232,5 +236,4 @@ def refine_description(raw_description: str) -> str:
         max_tokens=600,
     )
 
-    raw = response.choices[0].message.content
-    return _normalize_llm_text_content(raw)
+    return _parse_llm_response(response)

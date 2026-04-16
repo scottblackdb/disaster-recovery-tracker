@@ -11,9 +11,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import { fetchClaims, getApiErrorMessage } from '../services/api';
 import { Claim, STATUS_LABELS } from '../types';
 import StatusChip from '../components/StatusChip';
-
-const formatCurrency = (val: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(val);
+import { formatCurrency } from '../utils/format';
 
 const statusOptions = [
   { value: '', label: 'All Statuses' },

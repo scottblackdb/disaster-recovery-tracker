@@ -12,26 +12,29 @@ from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional
 
+import hashlib
+import logging
+import uuid
+
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+import httpx
 import psycopg
 from psycopg.rows import dict_row
-
-import logging
+from psycopg_pool import ConnectionPool
 
 from config import (
-    BRANCH_ID,
-    DATABASE_NAME,
-    ENDPOINT_ID,
-    LAKEBASE_HOST,
-    LAKEBASE_PASSWORD,
-    LAKEBASE_USER,
+    ENDPOINT_NAME,
     MAX_IMAGE_UPLOAD_BYTES,
-    PROJECT_ID,
+    PGDATABASE,
+    PGHOST,
+    PGPORT,
+    PGSSLMODE,
+    PGUSER,
 )
-from databricks_auth import cli_json
+from databricks_auth import w
 
 _logger = logging.getLogger(__name__)
 from document_ai import (
@@ -61,56 +64,72 @@ app.add_middleware(
 )
 
 
-def get_db_connection():
-    """Get a psycopg connection to Lakebase.
+class OAuthConnection(psycopg.Connection):
+    """Connection subclass that fetches a fresh Lakebase OAuth credential on each connect."""
 
-    Prefers the Databricks CLI for dynamic OAuth credentials.
-    Falls back to LAKEBASE_HOST / LAKEBASE_USER / LAKEBASE_PASSWORD env vars.
+    @classmethod
+    def connect(cls, conninfo="", **kwargs):
+        cred = w.postgres.generate_database_credential(endpoint=ENDPOINT_NAME)
+        kwargs["password"] = cred.token
+        return super().connect(conninfo, **kwargs)
+
+
+def _build_conninfo() -> str:
+    """Build the PostgreSQL connection string.
+
+    On Databricks Apps the PGHOST/PGUSER env vars are auto-injected.
+    Locally, derive them from the SDK endpoint metadata if not set.
     """
-    host = user = password = None
+    host = PGHOST
+    user = PGUSER
+    if not host or not user:
+        _logger.info("PGHOST/PGUSER not set — deriving from SDK endpoint metadata")
+        ep = w.postgres.list_endpoints(parent=ENDPOINT_NAME.rsplit("/endpoints/", 1)[0])
+        first = next(iter(ep))
+        host = host or first.status.hosts.host
+        if not user:
+            me = w.current_user.me()
+            user = me.user_name
+    return f"dbname={PGDATABASE} user={user} host={host} port={PGPORT} sslmode={PGSSLMODE}"
 
-    try:
-        endpoints = cli_json([
-            "postgres", "list-endpoints",
-            f"projects/{PROJECT_ID}/branches/{BRANCH_ID}"
-        ])
-        host = endpoints[0]["status"]["hosts"]["host"]
 
-        cred = cli_json([
-            "postgres", "generate-database-credential",
-            f"projects/{PROJECT_ID}/branches/{BRANCH_ID}/endpoints/{ENDPOINT_ID}"
-        ])
-        password = cred["token"]
+_pool: ConnectionPool | None = None
 
-        user_info = cli_json(["current-user", "me"])
-        user = user_info["userName"]
-    except RuntimeError:
-        _logger.warning("CLI unavailable for DB connection, falling back to env vars")
 
-    host = host or LAKEBASE_HOST
-    user = user or LAKEBASE_USER
-    password = password or LAKEBASE_PASSWORD
+def get_db_connection():
+    """Get a context-managed connection from the pool (created on first call).
 
-    if not all([host, user, password]):
-        raise RuntimeError(
-            "No database credentials available. Either install/authenticate the Databricks CLI "
-            "or set LAKEBASE_HOST, LAKEBASE_USER, and LAKEBASE_PASSWORD environment variables."
+    Usage:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(...)
+            conn.commit()
+    """
+    global _pool
+    if _pool is None:
+        _pool = ConnectionPool(
+            conninfo=_build_conninfo(),
+            connection_class=OAuthConnection,
+            kwargs={"row_factory": dict_row, "autocommit": False},
+            min_size=1,
+            max_size=10,
+            open=True,
         )
-
-    return psycopg.connect(
-        host=host, port=5432, dbname=DATABASE_NAME,
-        user=user, password=password, sslmode="require",
-        row_factory=dict_row, autocommit=False
-    )
+    return _pool.connection()
 
 
-def json_serial(obj):
+def _json_default(obj):
     """JSON serializer for objects not serializable by default."""
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
     if isinstance(obj, Decimal):
         return float(obj)
     raise TypeError(f"Type {type(obj)} not serializable")
+
+
+def _serialize(data):
+    """Round-trip DB rows through JSON to handle dates/decimals."""
+    return json.loads(json.dumps(data, default=_json_default))
 
 
 # --- Health ---
@@ -134,11 +153,9 @@ def current_user(request: Request):
     # 2. Databricks Apps: use the forwarded access token to look up the user
     user_token = request.headers.get("x-forwarded-access-token")
     if user_token:
-        import httpx
-        from config import DATABRICKS_HOST
         try:
             resp = httpx.get(
-                f"{DATABRICKS_HOST}/api/2.0/preview/scim/v2/Me",
+                f"{w.config.host}/api/2.0/preview/scim/v2/Me",
                 headers={"Authorization": f"Bearer {user_token}"},
                 timeout=10,
             )
@@ -148,7 +165,6 @@ def current_user(request: Request):
             pass
 
     # 3. Fallback: generate a random placeholder
-    import hashlib, uuid
     tag = hashlib.md5(uuid.uuid4().bytes).hexdigest()[:8]
     return {"email": f"user_{tag}@county.local", "source": "generated"}
 
@@ -156,21 +172,17 @@ def current_user(request: Request):
 # --- FEMA Categories ---
 @app.get("/api/categories")
 def list_categories():
-    conn = get_db_connection()
-    try:
+    with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT * FROM fema_categories ORDER BY code")
             rows = cur.fetchall()
-        return json.loads(json.dumps(list(rows), default=json_serial))
-    finally:
-        conn.close()
+        return _serialize(list(rows))
 
 
 # --- Claims ---
 @app.get("/api/claims")
 def list_claims(status: Optional[str] = None, county: Optional[str] = None):
-    conn = get_db_connection()
-    try:
+    with get_db_connection() as conn:
         with conn.cursor() as cur:
             query = """
                 SELECT c.*, fc.code as fema_code, fc.name as fema_category_name,
@@ -189,15 +201,12 @@ def list_claims(status: Optional[str] = None, county: Optional[str] = None):
             query += " ORDER BY c.submitted_at DESC"
             cur.execute(query, params)
             rows = cur.fetchall()
-        return json.loads(json.dumps(list(rows), default=json_serial))
-    finally:
-        conn.close()
+        return _serialize(list(rows))
 
 
 @app.get("/api/claims/{claim_id}")
 def get_claim(claim_id: int):
-    conn = get_db_connection()
-    try:
+    with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT c.*, fc.code as fema_code, fc.name as fema_category_name
@@ -218,9 +227,7 @@ def get_claim(claim_id: int):
         result = dict(claim)
         result["documents"] = list(documents)
         result["status_history"] = list(history)
-        return json.loads(json.dumps(result, default=json_serial))
-    finally:
-        conn.close()
+        return _serialize(result)
 
 
 @app.post("/api/claims")
@@ -247,8 +254,7 @@ def create_claim(
             raise HTTPException(status_code=400, detail=f"Could not read staged damage image: {e}") from e
         staged_base_name = os.path.basename(ps.rstrip("/")) or "damage_image"
 
-    conn = get_db_connection()
-    try:
+    with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO claims (incident_name, county, applicant_name, description,
@@ -284,9 +290,7 @@ def create_claim(
                 ))
 
             conn.commit()
-        return json.loads(json.dumps(dict(claim), default=json_serial))
-    finally:
-        conn.close()
+        return _serialize(dict(claim))
 
 
 @app.patch("/api/claims/{claim_id}/status")
@@ -312,8 +316,7 @@ def update_claim_status(
         if approved_amt < 0:
             raise HTTPException(status_code=400, detail="approved_amount must be zero or greater")
 
-    conn = get_db_connection()
-    try:
+    with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT status FROM claims WHERE id = %s", (claim_id,))
             row = cur.fetchone()
@@ -337,9 +340,7 @@ def update_claim_status(
                 VALUES (%s, %s, %s, %s, %s)
             """, (claim_id, old_status, status, changed_by, notes))
             conn.commit()
-        return json.loads(json.dumps(dict(claim), default=json_serial))
-    finally:
-        conn.close()
+        return _serialize(dict(claim))
 
 
 # --- Document Upload & AI Processing ---
@@ -352,12 +353,10 @@ def _insert_and_process_document(claim_id: int, content: bytes, file_name: str, 
     try:
         storage_path = upload_to_volume(content, claim_id, file_name)
     except Exception as e:
-        import logging
-        logging.warning(f"Volume upload failed for claim {claim_id}/{file_name}: {e}")
+        _logger.warning("Volume upload failed for claim %s/%s: %s", claim_id, file_name, e)
         storage_path = None  # non-fatal; continue with AI processing
 
-    conn = get_db_connection()
-    try:
+    with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT id FROM claims WHERE id = %s", (claim_id,))
             if not cur.fetchone():
@@ -372,47 +371,42 @@ def _insert_and_process_document(claim_id: int, content: bytes, file_name: str, 
             doc_id = doc["id"]
             conn.commit()
 
-        # AI extraction
-        ai_result = extract_with_ai(content, file_name, content_type)
+    # AI extraction (outside connection context — can be slow)
+    ai_result = extract_with_ai(content, file_name, content_type)
 
-        conn2 = get_db_connection()
-        try:
-            with conn2.cursor() as cur:
-                cur.execute("""
-                    UPDATE documents SET
-                        ai_extracted_vendor = %s,
-                        ai_extracted_cost = %s,
-                        ai_extracted_date = %s,
-                        ai_extracted_category = %s,
-                        ai_summary = %s,
-                        ai_damage_description = %s,
-                        processing_status = 'completed'
-                    WHERE id = %s RETURNING *
-                """, (*document_update_values_from_ai(ai_result), doc_id))
-                updated_doc = cur.fetchone()
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE documents SET
+                    ai_extracted_vendor = %s,
+                    ai_extracted_cost = %s,
+                    ai_extracted_date = %s,
+                    ai_extracted_category = %s,
+                    ai_summary = %s,
+                    ai_damage_description = %s,
+                    processing_status = 'completed'
+                WHERE id = %s RETURNING *
+            """, (*document_update_values_from_ai(ai_result), doc_id))
+            updated_doc = cur.fetchone()
 
-                # Update claim with AI suggestions if available
-                code = ai_result.get("fema_category")
-                if code:
-                    cur.execute("SELECT id FROM fema_categories WHERE code = %s", (code,))
-                    cat = cur.fetchone()
-                    if cat:
-                        cur.execute("""
-                            UPDATE claims SET
-                                fema_category_id = COALESCE(fema_category_id, %s),
-                                ai_confidence_score = %s,
-                                ai_flags = %s,
-                                status = CASE WHEN status = 'submitted' THEN 'ai_processed' ELSE status END,
-                                updated_at = CURRENT_TIMESTAMP
-                            WHERE id = %s
-                        """, (cat["id"], ai_result.get("confidence", 0), ai_result.get("flags"), claim_id))
+            # Update claim with AI suggestions if available
+            code = ai_result.get("fema_category")
+            if code:
+                cur.execute("SELECT id FROM fema_categories WHERE code = %s", (code,))
+                cat = cur.fetchone()
+                if cat:
+                    cur.execute("""
+                        UPDATE claims SET
+                            fema_category_id = COALESCE(fema_category_id, %s),
+                            ai_confidence_score = %s,
+                            ai_flags = %s,
+                            status = CASE WHEN status = 'submitted' THEN 'ai_processed' ELSE status END,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = %s
+                    """, (cat["id"], ai_result.get("confidence", 0), ai_result.get("flags"), claim_id))
 
-                conn2.commit()
-            return json.loads(json.dumps(dict(updated_doc), default=json_serial))
-        finally:
-            conn2.close()
-    finally:
-        conn.close()
+            conn.commit()
+        return _serialize(dict(updated_doc))
 
 
 @app.post("/api/claims/{claim_id}/documents")
@@ -465,21 +459,17 @@ async def upload_document_from_url(claim_id: int, url: str = Form(...)):
 
 @app.get("/api/claims/{claim_id}/documents")
 def list_documents(claim_id: int):
-    conn = get_db_connection()
-    try:
+    with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT * FROM documents WHERE claim_id = %s ORDER BY uploaded_at DESC", (claim_id,))
             rows = cur.fetchall()
-        return json.loads(json.dumps(list(rows), default=json_serial))
-    finally:
-        conn.close()
+        return _serialize(list(rows))
 
 
 @app.get("/api/documents/{doc_id}/file")
 def view_document_file(doc_id: int):
     """Download/view the original uploaded file from the UC Volume."""
-    conn = get_db_connection()
-    try:
+    with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT storage_path, file_name, file_type FROM documents WHERE id = %s", (doc_id,))
             doc = cur.fetchone()
@@ -487,15 +477,12 @@ def view_document_file(doc_id: int):
                 raise HTTPException(status_code=404, detail="Document not found")
             if not doc["storage_path"]:
                 raise HTTPException(status_code=404, detail="File not stored in volume")
-    finally:
-        conn.close()
 
     content, content_type = download_from_volume(doc["storage_path"])
     # Use stored content_type if volume didn't return a useful one
     if content_type == "application/octet-stream" and doc["file_type"]:
         content_type = doc["file_type"]
 
-    from fastapi.responses import Response
     return Response(
         content=content,
         media_type=content_type,
@@ -506,8 +493,7 @@ def view_document_file(doc_id: int):
 # --- Dashboard Stats ---
 @app.get("/api/dashboard/stats")
 def dashboard_stats():
-    conn = get_db_connection()
-    try:
+    with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) as total FROM claims")
             total = cur.fetchone()["total"]
@@ -518,7 +504,6 @@ def dashboard_stats():
             cur.execute("SELECT COALESCE(SUM(estimated_cost), 0) as total FROM claims")
             total_estimated = cur.fetchone()["total"]
 
-            # approved_amount is often unset when status is moved to approved in the UI; fall back to estimated_cost
             cur.execute("""
                 SELECT COALESCE(SUM(COALESCE(approved_amount, estimated_cost, 0)), 0) as total
                 FROM claims WHERE status = 'approved'
@@ -539,16 +524,14 @@ def dashboard_stats():
             """)
             by_county = list(cur.fetchall())
 
-        return json.loads(json.dumps({
+        return _serialize({
             "total_claims": total,
             "by_status": by_status,
             "total_estimated_cost": total_estimated,
             "total_approved_amount": total_approved,
             "by_category": by_category,
             "by_county": by_county,
-        }, default=json_serial))
-    finally:
-        conn.close()
+        })
 
 
 # --- Serve React Frontend ---
