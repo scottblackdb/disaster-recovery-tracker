@@ -54,6 +54,7 @@ from document_ai import (
     refine_description,
 )
 from volume_storage import (
+    delete_volume_file,
     download_from_volume,
     is_valid_preview_staging_path,
     try_stage_new_claim_image,
@@ -560,6 +561,53 @@ def list_documents(claim_id: int):
             cur.execute("SELECT * FROM documents WHERE claim_id = %s ORDER BY uploaded_at DESC", (claim_id,))
             rows = cur.fetchall()
         return _serialize(list(rows))
+
+
+@app.delete("/api/claims/{claim_id}/documents/{doc_id}")
+def delete_claim_document(claim_id: int, doc_id: int):
+    """Remove document row and delete the file from the UC Volume when ``storage_path`` is set."""
+    storage_path: Optional[str] = None
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, storage_path FROM documents WHERE id = %s AND claim_id = %s",
+                (doc_id, claim_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Document not found")
+            storage_path = row["storage_path"]
+
+    if storage_path:
+        try:
+            delete_volume_file(storage_path)
+        except Exception as e:
+            err_l = str(e).lower()
+            if any(s in err_l for s in ("404", "not found", "does not exist", "resource_not_found")):
+                _logger.warning(
+                    "Volume file already absent (continuing to remove DB row): %s — %s",
+                    storage_path,
+                    e,
+                )
+            else:
+                _logger.error("Could not delete volume object %s: %s", storage_path, e)
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Could not delete file from Unity Catalog volume: {e}",
+                ) from e
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM documents WHERE id = %s AND claim_id = %s RETURNING id",
+                (doc_id, claim_id),
+            )
+            deleted = cur.fetchone()
+            if not deleted:
+                raise HTTPException(status_code=404, detail="Document not found")
+            conn.commit()
+
+    return Response(status_code=204)
 
 
 @app.get("/api/documents/{doc_id}/file")

@@ -104,6 +104,10 @@ export async function fetchDocuments(claimId: number): Promise<Document[]> {
   return data;
 }
 
+export async function deleteClaimDocument(claimId: number, docId: number): Promise<void> {
+  await api.delete(`/claims/${claimId}/documents/${docId}`);
+}
+
 export async function fetchDashboardStats(): Promise<DashboardStats> {
   const { data } = await api.get('/dashboard/stats');
   return data;

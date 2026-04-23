@@ -116,3 +116,14 @@ def download_from_volume(volume_path: str) -> tuple[bytes, str]:
     resp.raise_for_status()
     content_type = resp.headers.get("content-type", "application/octet-stream")
     return resp.content, content_type
+
+
+def delete_volume_file(volume_path: str) -> None:
+    """Delete a single file from a Unity Catalog volume (Files API DELETE /api/2.0/fs/files)."""
+    if not isinstance(volume_path, str) or not volume_path.startswith("/Volumes/"):
+        raise ValueError("volume_path must be an absolute UC volume file path starting with /Volumes/")
+    if ".." in volume_path:
+        raise ValueError("invalid volume_path")
+    if volume_path.endswith("/"):
+        raise ValueError("volume_path must be a file, not a directory")
+    w.files.delete(volume_path)

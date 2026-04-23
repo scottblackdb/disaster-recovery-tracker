@@ -5,7 +5,7 @@ import {
   CircularProgress, Alert, TextField, MenuItem, Dialog, DialogTitle,
   DialogContent, DialogActions, LinearProgress, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, Paper, Stack,
-  ToggleButtonGroup, ToggleButton
+  ToggleButtonGroup, ToggleButton, IconButton, Tooltip,
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import LinkIcon from '@mui/icons-material/Link';
@@ -13,8 +13,9 @@ import SmartToyIcon from '@mui/icons-material/SmartToy';
 import HistoryIcon from '@mui/icons-material/History';
 import DescriptionIcon from '@mui/icons-material/Description';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import { fetchClaim, fetchCurrentUser, uploadDocument, uploadDocumentFromUrl, updateClaimStatus, getApiErrorMessage } from '../services/api';
-import { Claim, STATUS_LABELS } from '../types';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import { fetchClaim, fetchCurrentUser, uploadDocument, uploadDocumentFromUrl, updateClaimStatus, deleteClaimDocument, getApiErrorMessage } from '../services/api';
+import { Claim, Document, STATUS_LABELS } from '../types';
 import StatusChip from '../components/StatusChip';
 import { formatCurrency } from '../utils/format';
 
@@ -39,6 +40,8 @@ export default function ClaimDetail() {
   const [approvedAmountInput, setApprovedAmountInput] = useState('');
   const [statusFormError, setStatusFormError] = useState('');
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [deleteConfirmDoc, setDeleteConfirmDoc] = useState<Document | null>(null);
+  const [deletingDocId, setDeletingDocId] = useState<number | null>(null);
 
   const resetStatusDialog = () => {
     setStatusDialog(false);
@@ -110,6 +113,22 @@ export default function ClaimDetail() {
       setUploadNotice({ severity: 'error', message: getApiErrorMessage(e) });
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleConfirmDeleteDocument = async () => {
+    if (claimId === null || !deleteConfirmDoc) return;
+    setDeletingDocId(deleteConfirmDoc.id);
+    setUploadNotice(null);
+    try {
+      await deleteClaimDocument(claimId, deleteConfirmDoc.id);
+      setDeleteConfirmDoc(null);
+      loadClaim();
+      setUploadNotice({ severity: 'success', message: 'Document removed from the claim and storage.' });
+    } catch (e: unknown) {
+      setUploadNotice({ severity: 'error', message: getApiErrorMessage(e) });
+    } finally {
+      setDeletingDocId(null);
     }
   };
 
@@ -340,6 +359,23 @@ export default function ClaimDetail() {
                               View File
                             </Button>
                           )}
+                          <Tooltip title="Delete from claim and Unity Catalog volume">
+                            <span>
+                              <IconButton
+                                size="small"
+                                color="error"
+                                aria-label={`Delete ${doc.file_name}`}
+                                disabled={deletingDocId !== null}
+                                onClick={() => setDeleteConfirmDoc(doc)}
+                              >
+                                {deletingDocId === doc.id ? (
+                                  <CircularProgress size={20} />
+                                ) : (
+                                  <DeleteOutlineIcon fontSize="small" />
+                                )}
+                              </IconButton>
+                            </span>
+                          </Tooltip>
                         </Stack>
                       </Box>
                       <Grid container spacing={2} sx={{ mb: doc.ai_damage_description || doc.ai_summary ? 1.5 : 0 }}>
@@ -490,6 +526,33 @@ export default function ClaimDetail() {
             }
           >
             {updatingStatus ? 'Updating...' : 'Update'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={deleteConfirmDoc !== null}
+        onClose={() => { if (deletingDocId === null) setDeleteConfirmDoc(null); }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Delete document?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            Remove <strong>{deleteConfirmDoc?.file_name}</strong> from this claim and delete the file from the Unity Catalog volume. This cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirmDoc(null)} disabled={deletingDocId !== null}>
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={handleConfirmDeleteDocument}
+            disabled={deletingDocId !== null}
+          >
+            {deletingDocId !== null ? 'Deleting…' : 'Delete'}
           </Button>
         </DialogActions>
       </Dialog>
