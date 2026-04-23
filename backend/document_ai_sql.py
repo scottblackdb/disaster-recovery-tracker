@@ -18,7 +18,7 @@ from databricks.sdk.service.sql import (
     StatementState,
 )
 
-from config import SQL_WAREHOUSE_ID
+from config import WAREHOUSE_ID
 from databricks_auth import w
 
 _logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ def estimate_file_uses_sql_pipeline(filename: str, content_type: str) -> bool:
 
 
 def warehouse_configured() -> bool:
-    return bool((SQL_WAREHOUSE_ID or "").strip())
+    return bool(WAREHOUSE_ID)
 
 
 def _coerce_cost(raw: Any) -> Optional[float]:
@@ -166,7 +166,7 @@ def _poll_statement(statement_id: str, deadline: float):
 def _execute_extract_sql(statement: str) -> str:
     resp = w.statement_execution.execute_statement(
         statement=statement,
-        warehouse_id=SQL_WAREHOUSE_ID.strip(),
+        warehouse_id=WAREHOUSE_ID,
         wait_timeout="50s",
         format=Format.JSON_ARRAY,
         disposition=Disposition.INLINE,
