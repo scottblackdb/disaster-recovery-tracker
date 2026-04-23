@@ -4,9 +4,19 @@ import { getApiErrorMessage } from '../utils/apiError';
 
 /** Ensure requests hit `/api/...` on the backend (avoids POST → SPA catch-all → 405). */
 function normalizeApiBase(): string {
-  const raw = (process.env.REACT_APP_API_URL || 'http://localhost:8000').trim().replace(/\/$/, '');
-  if (raw.endsWith('/api')) return raw;
-  return `${raw}/api`;
+  const env = (process.env.REACT_APP_API_URL || '').trim().replace(/\/$/, '');
+  if (env) {
+    return env.endsWith('/api') ? env : `${env}/api`;
+  }
+  // Same host as the UI (Databricks Apps, production behind one origin, or CRA dev on :3000 + proxy).
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    const origin = window.location.origin.replace(/\/$/, '');
+    const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+    const prefix = base ? `${origin}${base}` : origin;
+    return `${prefix}/api`;
+  }
+  // Node / tests without window
+  return 'http://localhost:8000/api';
 }
 
 const API_BASE = normalizeApiBase();
