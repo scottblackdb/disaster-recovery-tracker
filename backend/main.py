@@ -35,15 +35,9 @@ from config import (
     PGUSER,
 )
 from databricks_auth import w
-
-_logger = logging.getLogger("backend")
-_logger.setLevel(logging.INFO)
-_logger.propagate = False
-if not _logger.handlers:
-    _handler = logging.StreamHandler()
-    _handler.setFormatter(logging.Formatter("INFO:     %(message)s"))
-    _logger.addHandler(_handler)
 from document_ai import (
+    SQL_UPDATE_DOCUMENT_AI_FIELDS,
+    SQL_UPDATE_DOCUMENT_AI_FIELDS_RETURNING,
     classify_fema_category_from_claim_fields,
     document_update_values_from_ai,
     extract_with_ai,
@@ -61,6 +55,29 @@ from volume_storage import (
     upload_claim_document_with_retry,
     upload_to_volume,
 )
+
+_logger = logging.getLogger("backend")
+_logger.setLevel(logging.INFO)
+_logger.propagate = False
+if not _logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("INFO:     %(message)s"))
+    _logger.addHandler(_handler)
+
+CLAIM_VALID_STATUSES: frozenset[str] = frozenset(
+    ("submitted", "under_review", "ai_processed", "approved", "rejected", "needs_info", "packaged")
+)
+
+# Volume / Files API: treat as "already gone" so we still remove the DB row.
+_VOLUME_FILE_ABSENT_ERROR_MARKERS: frozenset[str] = frozenset(
+    ("404", "not found", "does not exist", "resource_not_found")
+)
+
+
+def _volume_delete_error_is_absent(err: Exception) -> bool:
+    err_l = str(err).lower()
+    return any(m in err_l for m in _VOLUME_FILE_ABSENT_ERROR_MARKERS)
+
 
 app = FastAPI(title="Disaster Recovery Tracker API")
 
@@ -148,19 +165,16 @@ def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 
-@app.get("/api/current-user")
-def current_user(request: Request):
-    """Return the logged-in user's email.
+def _identity_from_request_headers(request: Request) -> Optional[str]:
+    """Return the caller's email/userName when Databricks Apps forwards identity; else None.
 
-    When running as a Databricks App the platform injects x-forwarded-access-token
-    and x-forwarded-email headers. We prefer those over the CLI.
+    Same resolution as ``/api/current-user`` for the Databricks paths, without the
+    generated placeholder (used only for status history and similar auditing).
     """
-    # 1. Databricks Apps: check forwarded headers
     email = request.headers.get("x-forwarded-email")
-    if email:
-        return {"email": email, "source": "databricks"}
+    if email and email.strip():
+        return email.strip()
 
-    # 2. Databricks Apps: use the forwarded access token to look up the user
     user_token = request.headers.get("x-forwarded-access-token")
     if user_token:
         try:
@@ -170,11 +184,50 @@ def current_user(request: Request):
                 timeout=10,
             )
             resp.raise_for_status()
-            return {"email": resp.json().get("userName", "unknown"), "source": "databricks"}
+            name = resp.json().get("userName")
+            if name and str(name).strip():
+                return str(name).strip()
         except Exception:
             pass
+    return None
 
-    # 3. Fallback: generate a random placeholder
+
+def _status_history_actor(request: Request, form_fallback: str = "") -> str:
+    """Prefer authenticated platform user; otherwise use non-empty client-provided name."""
+    ident = _identity_from_request_headers(request)
+    if ident:
+        return ident
+    return (form_fallback or "").strip()
+
+
+def _insert_claim_status_history(
+    cur,
+    claim_id: int,
+    old_status: Optional[str],
+    new_status: str,
+    changed_by: str,
+    notes: str,
+) -> None:
+    cur.execute(
+        """
+        INSERT INTO claim_status_history (claim_id, old_status, new_status, changed_by, notes)
+        VALUES (%s, %s, %s, %s, %s)
+        """,
+        (claim_id, old_status, new_status, changed_by, notes),
+    )
+
+
+@app.get("/api/current-user")
+def current_user(request: Request):
+    """Return the logged-in user's email.
+
+    When running as a Databricks App the platform injects x-forwarded-access-token
+    and x-forwarded-email headers. We prefer those over the CLI.
+    """
+    ident = _identity_from_request_headers(request)
+    if ident:
+        return {"email": ident, "source": "databricks"}
+
     tag = hashlib.md5(uuid.uuid4().bytes).hexdigest()[:8]
     return {"email": f"user_{tag}@county.local", "source": "generated"}
 
@@ -242,6 +295,7 @@ def get_claim(claim_id: int):
 
 @app.post("/api/claims")
 def create_claim(
+    request: Request,
     incident_name: str = Form(...),
     county: str = Form(...),
     applicant_name: str = Form(...),
@@ -326,10 +380,8 @@ def create_claim(
             hist_note = "Claim created"
             if resolved_fema_id is not None and not user_chose_category and ai_ran:
                 hist_note = "Claim created; FEMA category assigned by AI"
-            cur.execute("""
-                INSERT INTO claim_status_history (claim_id, old_status, new_status, changed_by, notes)
-                VALUES (%s, NULL, %s, %s, %s)
-            """, (claim_id, claim_status, submitted_by, hist_note))
+            actor = _status_history_actor(request, submitted_by)
+            _insert_claim_status_history(cur, claim_id, None, claim_status, actor, hist_note)
 
             if staged_content is not None and staged_base_name is not None:
                 file_size = len(staged_content)
@@ -354,17 +406,10 @@ def create_claim(
                 doc_id = doc_row["id"]
 
                 if staged_ai_result:
-                    cur.execute("""
-                        UPDATE documents SET
-                            ai_extracted_vendor = %s,
-                            ai_extracted_cost = %s,
-                            ai_extracted_date = %s,
-                            ai_extracted_category = %s,
-                            ai_summary = %s,
-                            ai_damage_description = %s,
-                            processing_status = 'completed'
-                        WHERE id = %s
-                    """, (*document_update_values_from_ai(staged_ai_result), doc_id))
+                    cur.execute(
+                        SQL_UPDATE_DOCUMENT_AI_FIELDS,
+                        (*document_update_values_from_ai(staged_ai_result), doc_id),
+                    )
 
             conn.commit()
         return _serialize(dict(claim))
@@ -372,15 +417,18 @@ def create_claim(
 
 @app.patch("/api/claims/{claim_id}/status")
 def update_claim_status(
+    request: Request,
     claim_id: int,
     status: str = Form(...),
     changed_by: str = Form(""),
     notes: str = Form(""),
     approved_amount: Optional[str] = Form(None),
 ):
-    valid_statuses = ["submitted", "under_review", "ai_processed", "approved", "rejected", "needs_info", "packaged"]
-    if status not in valid_statuses:
-        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+    if status not in CLAIM_VALID_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status. Must be one of: {sorted(CLAIM_VALID_STATUSES)}",
+        )
 
     approved_amt: Optional[float] = None
     if status == "approved":
@@ -412,17 +460,21 @@ def update_claim_status(
                 """, (status, claim_id))
             claim = cur.fetchone()
 
-            cur.execute("""
-                INSERT INTO claim_status_history (claim_id, old_status, new_status, changed_by, notes)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (claim_id, old_status, status, changed_by, notes))
+            actor = _status_history_actor(request, changed_by)
+            _insert_claim_status_history(cur, claim_id, old_status, status, actor, notes)
             conn.commit()
         return _serialize(dict(claim))
 
 
 # --- Document Upload & AI Processing ---
 
-def _insert_and_process_document(claim_id: int, content: bytes, file_name: str, content_type: str) -> dict:
+def _insert_and_process_document(
+    claim_id: int,
+    content: bytes,
+    file_name: str,
+    content_type: str,
+    changed_by: str = "",
+) -> dict:
     """Insert a document record, upload to Volume, run AI extraction, update claim."""
     file_size = len(content)
 
@@ -463,17 +515,10 @@ def _insert_and_process_document(claim_id: int, content: bytes, file_name: str, 
 
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE documents SET
-                    ai_extracted_vendor = %s,
-                    ai_extracted_cost = %s,
-                    ai_extracted_date = %s,
-                    ai_extracted_category = %s,
-                    ai_summary = %s,
-                    ai_damage_description = %s,
-                    processing_status = 'completed'
-                WHERE id = %s RETURNING *
-            """, (*document_update_values_from_ai(ai_result), doc_id))
+            cur.execute(
+                SQL_UPDATE_DOCUMENT_AI_FIELDS_RETURNING,
+                (*document_update_values_from_ai(ai_result), doc_id),
+            )
             updated_doc = cur.fetchone()
 
             # Update claim with AI suggestions if available
@@ -503,19 +548,24 @@ def _insert_and_process_document(claim_id: int, content: bytes, file_name: str, 
             cur.execute("SELECT status FROM claims WHERE id = %s", (claim_id,))
             status_after = cur.fetchone()
             claim_status_now = status_after["status"] if status_after else "submitted"
-            cur.execute("""
-                INSERT INTO claim_status_history (claim_id, old_status, new_status, changed_by, notes)
-                VALUES (%s, NULL, %s, %s, %s)
-            """, (claim_id, claim_status_now, "", f"Document uploaded: {file_name}"))
+            _insert_claim_status_history(
+                cur,
+                claim_id,
+                None,
+                claim_status_now,
+                changed_by,
+                f"Document uploaded: {file_name}",
+            )
 
             conn.commit()
         return _serialize(dict(updated_doc))
 
 
 @app.post("/api/claims/{claim_id}/documents")
-async def upload_document(claim_id: int, file: UploadFile = File(...)):
+async def upload_document(claim_id: int, request: Request, file: UploadFile = File(...)):
     content = await file.read()
-    return _insert_and_process_document(claim_id, content, file.filename, file.content_type)
+    actor = _status_history_actor(request)
+    return _insert_and_process_document(claim_id, content, file.filename, file.content_type, changed_by=actor)
 
 
 @app.post("/api/preview/damage-description")
@@ -554,12 +604,13 @@ def refine_claim_description(description: str = Form(...)):
 
 
 @app.post("/api/claims/{claim_id}/documents/url")
-async def upload_document_from_url(claim_id: int, url: str = Form(...)):
+async def upload_document_from_url(claim_id: int, request: Request, url: str = Form(...)):
     """Fetch an image or document from a URL and process it with AI."""
     content, file_name, content_type = await read_upload_or_url_to_bytes(
         None, url, max_bytes=MAX_IMAGE_UPLOAD_BYTES
     )
-    return _insert_and_process_document(claim_id, content, file_name, content_type)
+    actor = _status_history_actor(request)
+    return _insert_and_process_document(claim_id, content, file_name, content_type, changed_by=actor)
 
 
 @app.get("/api/claims/{claim_id}/documents")
@@ -572,7 +623,7 @@ def list_documents(claim_id: int):
 
 
 @app.delete("/api/claims/{claim_id}/documents/{doc_id}")
-def delete_claim_document(claim_id: int, doc_id: int):
+def delete_claim_document(claim_id: int, doc_id: int, request: Request):
     """Remove document row and delete the file from the UC Volume when ``storage_path`` is set."""
     storage_path: Optional[str] = None
     deleted_file_name: Optional[str] = None
@@ -592,8 +643,7 @@ def delete_claim_document(claim_id: int, doc_id: int):
         try:
             delete_volume_file(storage_path)
         except Exception as e:
-            err_l = str(e).lower()
-            if any(s in err_l for s in ("404", "not found", "does not exist", "resource_not_found")):
+            if _volume_delete_error_is_absent(e):
                 _logger.warning(
                     "Volume file already absent (continuing to remove DB row): %s — %s",
                     storage_path,
@@ -624,10 +674,8 @@ def delete_claim_document(claim_id: int, doc_id: int):
                 if deleted_file_name
                 else "Document deleted"
             )
-            cur.execute("""
-                INSERT INTO claim_status_history (claim_id, old_status, new_status, changed_by, notes)
-                VALUES (%s, NULL, %s, %s, %s)
-            """, (claim_id, claim_status_now, "", note))
+            actor = _status_history_actor(request)
+            _insert_claim_status_history(cur, claim_id, None, claim_status_now, actor, note)
 
             conn.commit()
 

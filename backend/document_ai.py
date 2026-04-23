@@ -280,6 +280,21 @@ def document_update_values_from_ai(ai_result: dict) -> tuple:
     )
 
 
+# Shared by main.py (staged image on create + post-upload AI refresh).
+SQL_UPDATE_DOCUMENT_AI_FIELDS = """
+                UPDATE documents SET
+                    ai_extracted_vendor = %s,
+                    ai_extracted_cost = %s,
+                    ai_extracted_date = %s,
+                    ai_extracted_category = %s,
+                    ai_summary = %s,
+                    ai_damage_description = %s,
+                    processing_status = 'completed'
+                WHERE id = %s
+"""
+SQL_UPDATE_DOCUMENT_AI_FIELDS_RETURNING = SQL_UPDATE_DOCUMENT_AI_FIELDS.strip() + " RETURNING *"
+
+
 def form_description_from_ai_result(ai_result: dict) -> str:
     """Prefer damage narrative for photos; otherwise summary (e.g. new-claim description field)."""
     damage = ai_result.get("damage_description")

@@ -14,9 +14,11 @@ import HistoryIcon from '@mui/icons-material/History';
 import DescriptionIcon from '@mui/icons-material/Description';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import { fetchClaim, fetchCurrentUser, uploadDocument, uploadDocumentFromUrl, updateClaimStatus, deleteClaimDocument, getApiErrorMessage } from '../services/api';
+import { fetchClaim, uploadDocument, uploadDocumentFromUrl, updateClaimStatus, deleteClaimDocument, getApiErrorMessage } from '../services/api';
 import { Claim, Document, STATUS_LABELS } from '../types';
 import StatusChip from '../components/StatusChip';
+import { useCurrentUserEmail } from '../hooks/useCurrentUserEmail';
+import { tableHeadRowSx } from '../theme/tableStyles';
 import { formatCurrency } from '../utils/format';
 
 export default function ClaimDetail() {
@@ -33,7 +35,7 @@ export default function ClaimDetail() {
   const [uploadNotice, setUploadNotice] = useState<{ severity: 'success' | 'error'; message: string } | null>(null);
   const [uploadMode, setUploadMode] = useState<'file' | 'url'>('file');
   const [urlInput, setUrlInput] = useState('');
-  const [currentUserEmail, setCurrentUserEmail] = useState('Portal User');
+  const currentUserEmail = useCurrentUserEmail('Portal User');
   const [statusDialog, setStatusDialog] = useState(false);
   const [newStatus, setNewStatus] = useState('');
   const [statusNotes, setStatusNotes] = useState('');
@@ -67,12 +69,6 @@ export default function ClaimDetail() {
   }, [claimId, id]);
 
   useEffect(() => { loadClaim(); }, [loadClaim]);
-
-  useEffect(() => {
-    fetchCurrentUser()
-      .then(({ email }) => setCurrentUserEmail(email))
-      .catch(() => {});
-  }, []);
 
   const showUploadSuccess = (doc: any) => {
     setUploadNotice({
@@ -444,7 +440,7 @@ export default function ClaimDetail() {
                 <TableContainer>
                   <Table size="small">
                     <TableHead>
-                      <TableRow sx={(t) => ({ bgcolor: t.palette.mode === 'dark' ? 'grey.800' : 'grey.100' })}>
+                      <TableRow sx={tableHeadRowSx}>
                         <TableCell><strong>Date</strong></TableCell>
                         <TableCell><strong>From</strong></TableCell>
                         <TableCell><strong>To</strong></TableCell>

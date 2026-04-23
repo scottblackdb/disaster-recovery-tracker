@@ -11,6 +11,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import { fetchClaims, getApiErrorMessage } from '../services/api';
 import { Claim, STATUS_LABELS } from '../types';
 import StatusChip from '../components/StatusChip';
+import { tableHeadRowSx } from '../theme/tableStyles';
 import { formatCurrency } from '../utils/format';
 
 const statusOptions = [
@@ -37,7 +38,10 @@ export default function ClaimsList() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { loadClaims(); }, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Refetch when status filter changes. County uses explicit Search / Enter (not in deps).
+  useEffect(() => {
+    loadClaims();
+  }, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Box>
@@ -90,7 +94,7 @@ export default function ClaimsList() {
         <TableContainer component={Paper} elevation={2}>
           <Table>
             <TableHead>
-              <TableRow sx={(t) => ({ bgcolor: t.palette.mode === 'dark' ? 'grey.800' : 'grey.100' })}>
+              <TableRow sx={tableHeadRowSx}>
                 <TableCell><strong>ID</strong></TableCell>
                 <TableCell><strong>Incident</strong></TableCell>
                 <TableCell><strong>County</strong></TableCell>

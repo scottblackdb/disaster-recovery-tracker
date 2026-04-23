@@ -8,7 +8,8 @@ import {
 import SendIcon from '@mui/icons-material/Send';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined';
-import { createClaim, fetchCategories, fetchCurrentUser, getApiErrorMessage, previewDamageDescription, refineDescription } from '../services/api';
+import { createClaim, fetchCategories, getApiErrorMessage, previewDamageDescription, refineDescription } from '../services/api';
+import { useCurrentUserEmail } from '../hooks/useCurrentUserEmail';
 import { FemaCategory } from '../types';
 
 export default function NewClaim() {
@@ -40,13 +41,14 @@ export default function NewClaim() {
     fema_category_id: '',
   });
 
-  useEffect(() => {
-    fetchCurrentUser()
-      .then(({ email }) => {
-        setForm((prev) => prev.submitted_by ? prev : { ...prev, submitted_by: email });
-      })
-      .catch(() => {});
+  const platformEmail = useCurrentUserEmail('');
 
+  useEffect(() => {
+    if (!platformEmail) return;
+    setForm((prev) => (prev.submitted_by ? prev : { ...prev, submitted_by: platformEmail }));
+  }, [platformEmail]);
+
+  useEffect(() => {
     setCategoriesError('');
     fetchCategories()
       .then(setCategories)
