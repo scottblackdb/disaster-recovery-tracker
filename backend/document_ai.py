@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from fastapi import HTTPException, UploadFile
 from openai import OpenAI
 
-from config import LLM_ENDPOINT, REFINE_LLM_ENDPOINT, MAX_IMAGE_UPLOAD_BYTES
+from config import LLM_ENDPOINT, MAX_IMAGE_UPLOAD_BYTES, REFINE_LLM_ENDPOINT, VOLUME_PATH
 from databricks_auth import get_auth_token, w
 from document_ai_sql import (
     estimate_file_uses_sql_pipeline,
@@ -77,10 +77,20 @@ def _pdf_fallback_without_llm(
     *,
     volume_path: Optional[str],
     sql_extract_ran: bool,
+    volume_upload_error: Optional[str] = None,
 ) -> dict:
     """Do not send raw PDF bytes to the LLM as text — it invents 'encoded/unreadable' narratives."""
     if not volume_path:
-        hint = "No Unity Catalog Volume path for this file (volume upload may have failed)."
+        if volume_upload_error:
+            hint = (
+                f"The file could not be saved to Unity Catalog (Volumes). Error: {volume_upload_error}. "
+                f"This app builds paths from VOLUME_PATH ({VOLUME_PATH}); ensure that volume exists and "
+                "the workspace principal has permission to write via the Files API (/api/2.0/fs/files)."
+            )
+        else:
+            hint = (
+                "No Unity Catalog Volume path was recorded for this upload (storage path missing before extraction)."
+            )
     elif not warehouse_configured():
         hint = (
             "Set WAREHOUSE_ID so the app can run ai_parse_document and ai_extract on the Volume file path."
@@ -175,6 +185,7 @@ def extract_with_ai(
     filename: str,
     content_type: str,
     volume_path: Optional[str] = None,
+    volume_upload_error: Optional[str] = None,
 ) -> dict:
     """Run FEMA PA extraction: PDF/CSV on UC Volume use SQL ai_parse_document + ai_extract when configured."""
     # Uploaded claim documents are stored on a Volume path — prefer warehouse AI pipeline for estimates.
@@ -196,6 +207,7 @@ def extract_with_ai(
             filename,
             volume_path=volume_path,
             sql_extract_ran=sql_extract_ran,
+            volume_upload_error=volume_upload_error,
         )
 
     try:

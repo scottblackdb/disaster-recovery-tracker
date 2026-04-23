@@ -57,6 +57,7 @@ from volume_storage import (
     download_from_volume,
     is_valid_preview_staging_path,
     try_stage_new_claim_image,
+    upload_claim_document_with_retry,
     upload_to_volume,
 )
 
@@ -424,12 +425,16 @@ def _insert_and_process_document(claim_id: int, content: bytes, file_name: str, 
     """Insert a document record, upload to Volume, run AI extraction, update claim."""
     file_size = len(content)
 
-    # Upload file to UC Volume
-    try:
-        storage_path = upload_to_volume(content, claim_id, file_name)
-    except Exception as e:
-        _logger.warning("Volume upload failed for claim %s/%s: %s", claim_id, file_name, e)
-        storage_path = None  # non-fatal; continue with AI processing
+    storage_path, volume_upload_error = upload_claim_document_with_retry(
+        content, claim_id, file_name
+    )
+    if storage_path is None:
+        _logger.error(
+            "Unity Catalog volume upload failed for claim %s/%s after retries: %s",
+            claim_id,
+            file_name,
+            volume_upload_error,
+        )
 
     with get_db_connection() as conn:
         with conn.cursor() as cur:
@@ -447,7 +452,13 @@ def _insert_and_process_document(claim_id: int, content: bytes, file_name: str, 
             conn.commit()
 
     # AI extraction (outside connection context — can be slow)
-    ai_result = extract_with_ai(content, file_name, content_type, volume_path=storage_path)
+    ai_result = extract_with_ai(
+        content,
+        file_name,
+        content_type,
+        volume_path=storage_path,
+        volume_upload_error=volume_upload_error,
+    )
 
     with get_db_connection() as conn:
         with conn.cursor() as cur:
