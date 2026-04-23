@@ -59,6 +59,54 @@ def _ai_failure_payload(exc: Exception) -> dict:
     }
 
 
+def _is_pdf_document(filename: str, content_type: str, content: bytes) -> bool:
+    """Detect PDF binaries. Decoding these as UTF-8 for the chat model yields garbage and misleading summaries."""
+    fn = (filename or "").lower()
+    ct = (content_type or "").lower()
+    if fn.endswith(".pdf"):
+        return True
+    if "pdf" in ct:
+        return True
+    if len(content) >= 4 and content.startswith(b"%PDF"):
+        return True
+    return False
+
+
+def _pdf_fallback_without_llm(
+    filename: str,
+    *,
+    volume_path: Optional[str],
+    sql_extract_ran: bool,
+) -> dict:
+    """Do not send raw PDF bytes to the LLM as text — it invents 'encoded/unreadable' narratives."""
+    if not volume_path:
+        hint = "No Unity Catalog Volume path for this file (volume upload may have failed)."
+    elif not warehouse_configured():
+        hint = (
+            "Set WAREHOUSE_ID so the app can run ai_parse_document and ai_extract on the Volume file path."
+        )
+    elif sql_extract_ran:
+        hint = (
+            "SQL extraction ran but returned no usable fields or failed. "
+            "Confirm the warehouse can read the Volume and supports ai_parse_document / ai_extract."
+        )
+    else:
+        hint = "Enable PDF extraction via WAREHOUSE_ID and ai_parse_document / ai_extract."
+
+    return {
+        "vendor": None,
+        "cost": None,
+        "date": None,
+        "fema_category": None,
+        "summary": (
+            f"PDF ({filename or 'upload'}) was not parsed as text in the chat model. {hint}"
+        ),
+        "damage_description": None,
+        "confidence": 0,
+        "flags": "pdf_binary_requires_sql_ai_parse_extract",
+    }
+
+
 def normalize_fema_category_code(raw: Any) -> Optional[str]:
     """Normalize LLM output to a single FEMA PA category letter (A–I), or None."""
     if raw is None:
@@ -136,6 +184,19 @@ def extract_with_ai(
             if sql_payload:
                 sql_payload.pop("_extraction_source", None)
                 return sql_payload
+
+    sql_extract_ran = bool(
+        volume_path
+        and warehouse_configured()
+        and estimate_file_uses_sql_pipeline(filename, content_type)
+    )
+
+    if _is_pdf_document(filename, content_type, content):
+        return _pdf_fallback_without_llm(
+            filename,
+            volume_path=volume_path,
+            sql_extract_ran=sql_extract_ran,
+        )
 
     try:
         client = get_llm_client()
