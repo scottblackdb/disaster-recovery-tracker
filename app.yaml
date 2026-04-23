@@ -14,10 +14,10 @@ env:
   - name: ENDPOINT_NAME
     value: "projects/disaster-recovery/branches/production/endpoints/primary"
   - name: WAREHOUSE_ID
-    valueFrom: sql_warehouse
+    valueFrom: sql-warehouse
   - name: VOLUME_PATH
     valueFrom: volume
-    
+
 resources:
   - name: disaster-recovery-lakebase
     type: postgres
