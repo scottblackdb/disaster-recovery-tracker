@@ -491,6 +491,14 @@ def _insert_and_process_document(claim_id: int, content: bytes, file_name: str, 
                         WHERE id = %s
                     """, (cat["id"], ai_result.get("confidence", 0), ai_result.get("flags"), claim_id))
 
+            # Estimate documents: merge extracted total into claim cost when unset
+            extracted_cost = ai_result.get("cost")
+            if extracted_cost is not None:
+                cur.execute("""
+                    UPDATE claims SET estimated_cost = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s AND (estimated_cost IS NULL OR estimated_cost = 0)
+                """, (extracted_cost, claim_id))
+
             conn.commit()
         return _serialize(dict(updated_doc))
 

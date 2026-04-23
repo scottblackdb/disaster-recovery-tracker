@@ -65,6 +65,33 @@ def warehouse_configured() -> bool:
     return bool(WAREHOUSE_ID)
 
 
+def _estimate_fields_from_ai_extract_json(data: dict) -> dict[str, Any]:
+    """Normalize ai_extract JSON.
+
+    Warehouses often return VARIANT shaped like ``d:response:invoice_id`` (SQL), i.e. nested under
+    ``response``, not flat top-level keys.
+    """
+    nested = data.get("response")
+    layer: dict[str, Any]
+    if isinstance(nested, dict):
+        layer = nested
+    else:
+        layer = data
+
+    def pick(key: str) -> Any:
+        v = layer.get(key)
+        if v is None and layer is not data:
+            v = data.get(key)
+        return v
+
+    return {
+        "invoice_id": pick("invoice_id"),
+        "vendor_name": pick("vendor_name"),
+        "total_amount": pick("total_amount"),
+        "invoice_date": pick("invoice_date"),
+    }
+
+
 def _coerce_cost(raw: Any) -> Optional[float]:
     if raw is None:
         return None
@@ -94,10 +121,11 @@ def _map_ai_extract_variant_to_payload(variant_json: Optional[str]) -> Optional[
     if not isinstance(data, dict):
         return None
 
-    invoice_id = data.get("invoice_id")
-    vendor = data.get("vendor_name")
-    cost = _coerce_cost(data.get("total_amount"))
-    inv_date = data.get("invoice_date")
+    fields = _estimate_fields_from_ai_extract_json(data)
+    invoice_id = fields.get("invoice_id")
+    vendor = fields.get("vendor_name")
+    cost = _coerce_cost(fields.get("total_amount"))
+    inv_date = fields.get("invoice_date")
     date_str = None
     if inv_date is not None:
         date_str = str(inv_date).strip()[:32] or None
