@@ -1,9 +1,12 @@
-"""Structured extraction via Databricks SQL: read_files → ai_parse_document → ai_extract."""
+"""Structured extraction via Databricks SQL ai_extract(ai_parse_document(volume_path), schema).
+
+PDF: direct UC file path into ai_parse_document (same shape as interactive SQL).
+CSV: ai_parse_document does not support CSV — read_files as text, then ai_extract on the string.
+"""
 from __future__ import annotations
 
 import json
 import logging
-import re
 import time
 from decimal import Decimal
 from typing import Any, Optional
@@ -20,19 +23,8 @@ from databricks_auth import w
 
 _logger = logging.getLogger(__name__)
 
-# Matches official pattern; extended with PA category + summary for downstream claim updates.
-ESTIMATE_EXTRACT_SCHEMA = (
-    '["invoice_id","vendor_name","total_amount","invoice_date","fema_category","work_summary"]'
-)
-
-_DEFAULT_INSTRUCTIONS = (
-    "These are contractor estimates, invoices, or reconstruction cost documents for "
-    "FEMA Public Assistance. Extract total_amount as a number without currency symbols. "
-    "invoice_date in YYYY-MM-DD when possible. fema_category: single uppercase letter A–I "
-    "(A=Debris Removal, B=Emergency Protective Measures, C=Roads/Bridges, D=Water Control, "
-    "E=Public Buildings, F=Public Utilities, G=Parks/Recreation, H=Residential, I=Commercial). "
-    "work_summary: one or two sentences describing the scope of work or document."
-)
+# Same field list as: ai_extract(..., '["invoice_id","vendor_name","total_amount","invoice_date"]')
+ESTIMATE_EXTRACT_SCHEMA = '["invoice_id","vendor_name","total_amount","invoice_date"]'
 
 
 def validate_uc_single_file_volume_path(volume_path: str) -> bool:
@@ -73,16 +65,6 @@ def warehouse_configured() -> bool:
     return bool((SQL_WAREHOUSE_ID or "").strip())
 
 
-def _normalize_fema_letter(raw: Any) -> Optional[str]:
-    if raw is None:
-        return None
-    s = str(raw).strip().upper()
-    if not s:
-        return None
-    m = re.search(r"[A-I]", s)
-    return m.group(0) if m else None
-
-
 def _coerce_cost(raw: Any) -> Optional[float]:
     if raw is None:
         return None
@@ -120,13 +102,9 @@ def _map_ai_extract_variant_to_payload(variant_json: Optional[str]) -> Optional[
     if inv_date is not None:
         date_str = str(inv_date).strip()[:32] or None
 
-    fema = _normalize_fema_letter(data.get("fema_category"))
     summary_parts = []
     if invoice_id:
         summary_parts.append(f"Invoice / estimate ID: {invoice_id}")
-    ws = data.get("work_summary")
-    if isinstance(ws, str) and ws.strip():
-        summary_parts.append(ws.strip())
 
     summary = ". ".join(summary_parts) if summary_parts else None
 
@@ -134,7 +112,7 @@ def _map_ai_extract_variant_to_payload(variant_json: Optional[str]) -> Optional[
         "vendor": vendor if vendor else None,
         "cost": cost,
         "date": date_str,
-        "fema_category": fema,
+        "fema_category": None,
         "summary": summary,
         "damage_description": None,
         "confidence": 80,
@@ -143,27 +121,25 @@ def _map_ai_extract_variant_to_payload(variant_json: Optional[str]) -> Optional[
     }
 
 
-def _build_pdf_extract_sql(volume_path_escaped: str, schema_sql: str, instructions_sql: str) -> str:
+def _build_pdf_extract_sql(volume_path_escaped: str, schema_sql: str) -> str:
+    """Pattern: ai_extract(ai_parse_document('/Volumes/.../file.pdf'), '["invoice_id",...]')."""
     return f"""
 SELECT to_json(
   ai_extract(
-    ai_parse_document(content, map('version', '2.0')),
-    '{schema_sql}',
-    map('instructions', '{instructions_sql}')
+    ai_parse_document('{volume_path_escaped}'),
+    '{schema_sql}'
   )
 ) AS extracted_json
-FROM read_files('{volume_path_escaped}', format => 'binaryFile')
 """.strip()
 
 
-def _build_csv_extract_sql(volume_path_escaped: str, schema_sql: str, instructions_sql: str) -> str:
-    """CSV / text estimates: ai_extract directly on UTF-8 text."""
+def _build_csv_extract_sql(volume_path_escaped: str, schema_sql: str) -> str:
+    """CSV: load as text, same four fields (ai_parse_document does not support CSV binaries)."""
     return f"""
 SELECT to_json(
   ai_extract(
     CAST(content AS STRING),
-    '{schema_sql}',
-    map('instructions', '{instructions_sql}')
+    '{schema_sql}'
   )
 ) AS extracted_json
 FROM read_files('{volume_path_escaped}', format => 'text')
@@ -226,16 +202,15 @@ def extract_estimate_via_sql(volume_path: str, filename: str, content_type: str)
 
     escaped_path = sql_escape_literal(volume_path)
     schema_lit = sql_escape_literal(ESTIMATE_EXTRACT_SCHEMA)
-    instructions_lit = sql_escape_literal(_DEFAULT_INSTRUCTIONS)
 
     fn = (filename or "").lower()
     ct = (content_type or "").lower()
     try:
         if fn.endswith(".csv") or "csv" in ct:
-            stmt = _build_csv_extract_sql(escaped_path, schema_lit, instructions_lit)
+            stmt = _build_csv_extract_sql(escaped_path, schema_lit)
         else:
             # PDF (and PDF-like content types without .pdf extension)
-            stmt = _build_pdf_extract_sql(escaped_path, schema_lit, instructions_lit)
+            stmt = _build_pdf_extract_sql(escaped_path, schema_lit)
 
         cell = _execute_extract_sql(stmt)
         mapped = _map_ai_extract_variant_to_payload(cell)
