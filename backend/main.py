@@ -44,9 +44,11 @@ if not _logger.handlers:
     _handler.setFormatter(logging.Formatter("INFO:     %(message)s"))
     _logger.addHandler(_handler)
 from document_ai import (
+    classify_fema_category_from_claim_fields,
     document_update_values_from_ai,
     extract_with_ai,
     form_description_from_ai_result,
+    normalize_fema_category_code,
     raise_if_ai_processing_failed,
     read_upload_or_url_to_bytes,
     refine_description,
@@ -260,22 +262,72 @@ def create_claim(
             raise HTTPException(status_code=400, detail=f"Could not read staged damage image: {e}") from e
         staged_base_name = os.path.basename(ps.rstrip("/")) or "damage_image"
 
+    user_chose_category = fema_category_id is not None
+    staged_ai_result: Optional[dict] = None
+    text_ai_result: Optional[dict] = None
+
+    if not user_chose_category:
+        if staged_content is not None and staged_base_name is not None:
+            staged_ai_result = extract_with_ai(
+                staged_content,
+                staged_base_name,
+                staged_type or "application/octet-stream",
+            )
+        elif (description or "").strip():
+            text_ai_result = classify_fema_category_from_claim_fields(
+                incident_name, county, applicant_name, description, estimated_cost
+            )
+
+    ai_for_claim: Optional[dict] = staged_ai_result or text_ai_result
+    ai_code_raw = (ai_for_claim or {}).get("fema_category")
+    ai_confidence = (ai_for_claim or {}).get("confidence")
+    ai_flags = (ai_for_claim or {}).get("flags")
+
     with get_db_connection() as conn:
         with conn.cursor() as cur:
+            resolved_fema_id = fema_category_id
+            if resolved_fema_id is None:
+                code = normalize_fema_category_code(ai_code_raw)
+                if code:
+                    cur.execute("SELECT id FROM fema_categories WHERE code = %s", (code,))
+                    row = cur.fetchone()
+                    if row:
+                        resolved_fema_id = row["id"]
+
+            ai_ran = staged_ai_result is not None or text_ai_result is not None
+            if resolved_fema_id is not None and not user_chose_category and ai_ran:
+                claim_status = "ai_processed"
+            else:
+                claim_status = "submitted"
+
             cur.execute("""
                 INSERT INTO claims (incident_name, county, applicant_name, description,
-                                    estimated_cost, submitted_by, fema_category_id, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 'submitted')
+                                    estimated_cost, submitted_by, fema_category_id, status,
+                                    ai_confidence_score, ai_flags)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
-            """, (incident_name, county, applicant_name, description,
-                  estimated_cost, submitted_by, fema_category_id))
+            """, (
+                incident_name,
+                county,
+                applicant_name,
+                description,
+                estimated_cost,
+                submitted_by,
+                resolved_fema_id,
+                claim_status,
+                ai_confidence if ai_ran else None,
+                ai_flags if ai_ran else None,
+            ))
             claim = cur.fetchone()
             claim_id = claim["id"]
 
+            hist_note = "Claim created"
+            if resolved_fema_id is not None and not user_chose_category and ai_ran:
+                hist_note = "Claim created; FEMA category assigned by AI"
             cur.execute("""
                 INSERT INTO claim_status_history (claim_id, old_status, new_status, changed_by, notes)
-                VALUES (%s, NULL, 'submitted', %s, 'Claim created')
-            """, (claim_id, submitted_by))
+                VALUES (%s, NULL, %s, %s, %s)
+            """, (claim_id, claim_status, submitted_by, hist_note))
 
             if staged_content is not None and staged_base_name is not None:
                 file_size = len(staged_content)
@@ -286,14 +338,31 @@ def create_claim(
                     raise HTTPException(status_code=500, detail=f"Failed to save image to claim folder: {e}") from e
                 cur.execute("""
                     INSERT INTO documents (claim_id, file_name, file_type, file_size, storage_path, processing_status)
-                    VALUES (%s, %s, %s, %s, %s, 'completed')
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id
                 """, (
                     claim_id,
                     staged_base_name,
                     staged_type or "application/octet-stream",
                     file_size,
                     final_storage,
+                    "completed",
                 ))
+                doc_row = cur.fetchone()
+                doc_id = doc_row["id"]
+
+                if staged_ai_result:
+                    cur.execute("""
+                        UPDATE documents SET
+                            ai_extracted_vendor = %s,
+                            ai_extracted_cost = %s,
+                            ai_extracted_date = %s,
+                            ai_extracted_category = %s,
+                            ai_summary = %s,
+                            ai_damage_description = %s,
+                            processing_status = 'completed'
+                        WHERE id = %s
+                    """, (*document_update_values_from_ai(staged_ai_result), doc_id))
 
             conn.commit()
         return _serialize(dict(claim))
@@ -378,7 +447,7 @@ def _insert_and_process_document(claim_id: int, content: bytes, file_name: str, 
             conn.commit()
 
     # AI extraction (outside connection context — can be slow)
-    ai_result = extract_with_ai(content, file_name, content_type)
+    ai_result = extract_with_ai(content, file_name, content_type, volume_path=storage_path)
 
     with get_db_connection() as conn:
         with conn.cursor() as cur:

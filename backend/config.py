@@ -3,6 +3,9 @@ import os
 
 LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "databricks-llama-4-maverick")
 REFINE_LLM_ENDPOINT = os.getenv("REFINE_LLM_ENDPOINT", "databricks-gpt-oss-120b")
+
+# SQL warehouse ID for Statement Execution (ai_parse_document / ai_extract on Volume files).
+SQL_WAREHOUSE_ID = (os.getenv("WAREHOUSE_ID") or "").strip()
 VOLUME_PATH = os.getenv("VOLUME_PATH", "/Volumes/fema/default/filestore")
 
 # Lakebase connection — env vars are auto-injected by Databricks Apps when a

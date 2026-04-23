@@ -13,6 +13,8 @@ env:
     value: "databricks-gpt-oss-120b"
   - name: ENDPOINT_NAME
     value: "projects/disaster-recovery/branches/production/endpoints/primary"
+  - name: WAREHOUSE_ID
+    valueFrom: sql_warehouse
 
 resources:
   - name: disaster-recovery-lakebase

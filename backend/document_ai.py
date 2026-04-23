@@ -3,6 +3,7 @@ import base64
 import json
 import mimetypes
 import os
+import re
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -11,6 +12,11 @@ from openai import OpenAI
 
 from config import LLM_ENDPOINT, REFINE_LLM_ENDPOINT, MAX_IMAGE_UPLOAD_BYTES
 from databricks_auth import get_auth_token, w
+from document_ai_sql import (
+    estimate_file_uses_sql_pipeline,
+    extract_estimate_via_sql,
+    warehouse_configured,
+)
 
 
 def get_llm_client() -> OpenAI:
@@ -53,8 +59,84 @@ def _ai_failure_payload(exc: Exception) -> dict:
     }
 
 
-def extract_with_ai(content: bytes, filename: str, content_type: str) -> dict:
-    """Run FEMA PA document analyzer on bytes (image or text-like document)."""
+def normalize_fema_category_code(raw: Any) -> Optional[str]:
+    """Normalize LLM output to a single FEMA PA category letter (A–I), or None."""
+    if raw is None:
+        return None
+    s = str(raw).strip().upper()
+    if not s:
+        return None
+    m = re.search(r"[A-I]", s)
+    return m.group(0) if m else None
+
+
+def classify_fema_category_from_claim_fields(
+    incident_name: str,
+    county: str,
+    applicant_name: str,
+    description: str,
+    estimated_cost: float,
+) -> dict:
+    """Use the configured foundation model to infer FEMA PA category from claim text (no image)."""
+    try:
+        client = get_llm_client()
+        payload = {
+            "incident_name": incident_name.strip(),
+            "county": county.strip(),
+            "applicant_name": applicant_name.strip(),
+            "description": (description or "").strip(),
+            "estimated_cost": estimated_cost,
+        }
+        response = client.chat.completions.create(
+            model=LLM_ENDPOINT,
+            messages=[
+                {
+                    "role": "system",
+                    "content": """You classify FEMA Public Assistance (PA) emergency work and infrastructure damage claims.
+
+Given JSON fields describing a claim, assign exactly one FEMA PA category code:
+A=Debris Removal, B=Emergency Protective Measures, C=Roads/Bridges, D=Water Control,
+E=Public Buildings, F=Public Utilities, G=Parks/Recreation, H=Residential, I=Commercial.
+
+Return ONLY valid JSON with these keys:
+- fema_category: single uppercase letter A through I (the best match)
+- confidence: integer 0-100 for this assignment
+- flags: short string if information is insufficient or ambiguous, otherwise null
+
+Do not include markdown or explanation outside the JSON.""",
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(payload),
+                },
+            ],
+            temperature=0.1,
+            max_tokens=200,
+        )
+        return json.loads(_parse_llm_response(response))
+    except Exception as e:
+        return {
+            "fema_category": None,
+            "confidence": 0,
+            "flags": f"FEMA category classification failed: {e}",
+        }
+
+
+def extract_with_ai(
+    content: bytes,
+    filename: str,
+    content_type: str,
+    volume_path: Optional[str] = None,
+) -> dict:
+    """Run FEMA PA extraction: PDF/CSV on UC Volume use SQL ai_parse_document + ai_extract when configured."""
+    # Uploaded claim documents are stored on a Volume path — prefer warehouse AI pipeline for estimates.
+    if volume_path:
+        if warehouse_configured() and estimate_file_uses_sql_pipeline(filename, content_type):
+            sql_payload = extract_estimate_via_sql(volume_path, filename, content_type)
+            if sql_payload:
+                sql_payload.pop("_extraction_source", None)
+                return sql_payload
+
     try:
         client = get_llm_client()
         is_image = content_type and content_type.startswith("image/")
