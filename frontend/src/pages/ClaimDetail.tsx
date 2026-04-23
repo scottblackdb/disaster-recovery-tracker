@@ -333,20 +333,30 @@ export default function ClaimDetail() {
                 <Stack spacing={2}>
                   {claim.documents.map((doc) => (
                     <Paper key={doc.id} variant="outlined" sx={{ p: 2 }}>
-                      <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-                        <Box display="flex" alignItems="center" gap={1}>
+                      <Box mb={1}>
+                        <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" rowGap={0.5}>
                           <DescriptionIcon fontSize="small" color="action" />
-                          <Typography fontWeight={600}>{doc.file_name}</Typography>
+                          <Typography fontWeight={600} sx={{ wordBreak: 'break-word' }} component="span">
+                            {doc.file_name}
+                          </Typography>
                           <Chip
                             label={doc.processing_status}
                             size="small"
                             color={doc.processing_status === 'completed' ? 'success' : 'default'}
                           />
-                        </Box>
-                        <Stack direction="row" spacing={1} alignItems="center">
                           {doc.ai_extracted_category && (
                             <Chip label={`Cat ${doc.ai_extracted_category}`} size="small" color="secondary" />
                           )}
+                        </Box>
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          alignItems="center"
+                          justifyContent="flex-end"
+                          flexWrap="wrap"
+                          useFlexGap
+                          sx={{ mt: 1 }}
+                        >
                           {doc.storage_path && (
                             <Button
                               size="small"
@@ -355,6 +365,7 @@ export default function ClaimDetail() {
                               href={`/api/documents/${doc.id}/file`}
                               target="_blank"
                               rel="noopener noreferrer"
+                              sx={{ flexShrink: 0 }}
                             >
                               View File
                             </Button>
@@ -367,9 +378,10 @@ export default function ClaimDetail() {
                                 aria-label={`Delete ${doc.file_name}`}
                                 disabled={deletingDocId !== null}
                                 onClick={() => setDeleteConfirmDoc(doc)}
+                                sx={{ flexShrink: 0 }}
                               >
                                 {deletingDocId === doc.id ? (
-                                  <CircularProgress size={20} />
+                                  <CircularProgress size={20} color="inherit" />
                                 ) : (
                                   <DeleteOutlineIcon fontSize="small" />
                                 )}

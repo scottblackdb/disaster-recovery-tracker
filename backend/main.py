@@ -500,6 +500,14 @@ def _insert_and_process_document(claim_id: int, content: bytes, file_name: str, 
                     WHERE id = %s AND (estimated_cost IS NULL OR estimated_cost = 0)
                 """, (extracted_cost, claim_id))
 
+            cur.execute("SELECT status FROM claims WHERE id = %s", (claim_id,))
+            status_after = cur.fetchone()
+            claim_status_now = status_after["status"] if status_after else "submitted"
+            cur.execute("""
+                INSERT INTO claim_status_history (claim_id, old_status, new_status, changed_by, notes)
+                VALUES (%s, NULL, %s, %s, %s)
+            """, (claim_id, claim_status_now, "", f"Document uploaded: {file_name}"))
+
             conn.commit()
         return _serialize(dict(updated_doc))
 
@@ -567,16 +575,18 @@ def list_documents(claim_id: int):
 def delete_claim_document(claim_id: int, doc_id: int):
     """Remove document row and delete the file from the UC Volume when ``storage_path`` is set."""
     storage_path: Optional[str] = None
+    deleted_file_name: Optional[str] = None
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, storage_path FROM documents WHERE id = %s AND claim_id = %s",
+                "SELECT id, storage_path, file_name FROM documents WHERE id = %s AND claim_id = %s",
                 (doc_id, claim_id),
             )
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="Document not found")
             storage_path = row["storage_path"]
+            deleted_file_name = row["file_name"]
 
     if storage_path:
         try:
@@ -605,6 +615,20 @@ def delete_claim_document(claim_id: int, doc_id: int):
             deleted = cur.fetchone()
             if not deleted:
                 raise HTTPException(status_code=404, detail="Document not found")
+
+            cur.execute("SELECT status FROM claims WHERE id = %s", (claim_id,))
+            status_row = cur.fetchone()
+            claim_status_now = status_row["status"] if status_row else "submitted"
+            note = (
+                f"Document deleted: {deleted_file_name}"
+                if deleted_file_name
+                else "Document deleted"
+            )
+            cur.execute("""
+                INSERT INTO claim_status_history (claim_id, old_status, new_status, changed_by, notes)
+                VALUES (%s, NULL, %s, %s, %s)
+            """, (claim_id, claim_status_now, "", note))
+
             conn.commit()
 
     return Response(status_code=204)
