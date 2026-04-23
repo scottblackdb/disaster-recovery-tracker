@@ -76,7 +76,7 @@ export const STATUS_COLORS: Record<string, string> = {
 export const STATUS_LABELS: Record<string, string> = {
   submitted: 'Submitted',
   under_review: 'Under Review',
-  ai_processed: 'AI Processed',
+  ai_processed: 'Processed',
   approved: 'Approved',
   rejected: 'Rejected',
   needs_info: 'Needs Info',

@@ -117,7 +117,7 @@ export default function ClaimDetail() {
     setDeletingDocId(deleteConfirmDoc.id);
     setUploadNotice(null);
     try {
-      await deleteClaimDocument(claimId, deleteConfirmDoc.id);
+      await deleteClaimDocument(claimId, deleteConfirmDoc.id, currentUserEmail);
       setDeleteConfirmDoc(null);
       loadClaim();
       setUploadNotice({ severity: 'success', message: 'Document removed from the claim and storage.' });

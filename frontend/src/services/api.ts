@@ -114,8 +114,14 @@ export async function fetchDocuments(claimId: number): Promise<Document[]> {
   return data;
 }
 
-export async function deleteClaimDocument(claimId: number, docId: number): Promise<void> {
-  await api.delete(`/claims/${claimId}/documents/${docId}`);
+export async function deleteClaimDocument(
+  claimId: number,
+  docId: number,
+  changedBy?: string
+): Promise<void> {
+  await api.delete(`/claims/${claimId}/documents/${docId}`, {
+    params: changedBy != null && changedBy !== '' ? { changed_by: changedBy } : undefined,
+  });
 }
 
 export async function fetchDashboardStats(): Promise<DashboardStats> {

@@ -16,7 +16,7 @@ import hashlib
 import logging
 import uuid
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -623,7 +623,12 @@ def list_documents(claim_id: int):
 
 
 @app.delete("/api/claims/{claim_id}/documents/{doc_id}")
-def delete_claim_document(claim_id: int, doc_id: int, request: Request):
+def delete_claim_document(
+    claim_id: int,
+    doc_id: int,
+    request: Request,
+    changed_by: str = Query("", description="Known user from client when forwarded auth headers are absent."),
+):
     """Remove document row and delete the file from the UC Volume when ``storage_path`` is set."""
     storage_path: Optional[str] = None
     deleted_file_name: Optional[str] = None
@@ -674,7 +679,7 @@ def delete_claim_document(claim_id: int, doc_id: int, request: Request):
                 if deleted_file_name
                 else "Document deleted"
             )
-            actor = _status_history_actor(request)
+            actor = _status_history_actor(request, changed_by)
             _insert_claim_status_history(cur, claim_id, None, claim_status_now, actor, note)
 
             conn.commit()
