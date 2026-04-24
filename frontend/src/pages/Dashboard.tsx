@@ -38,7 +38,7 @@ export default function Dashboard() {
   return (
     <Box>
       <Typography variant="h4" fontWeight={700} gutterBottom>
-        Recovery Dashboard
+        Claims Dashboard
       </Typography>
       <Typography variant="body1" color="text.secondary" mb={3}>
         Real-time overview of Public Assistance claims and FEMA reimbursement tracking.
