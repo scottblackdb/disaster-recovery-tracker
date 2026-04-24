@@ -37,7 +37,7 @@ Skim these items so deployment choices make sense:
 
 ## Part C — Create a Databricks App
 
-1. Click on the Create button. ![create app](https://github.com/scottblackdb/disaster-recovery-tracker/blob/main/lab-materials/lab-1/images/selectApp.jpg)
+1. Click on the Create button. ![create app](https://github.com/scottblackdb/disaster-recovery-tracker/blob/main/lab-materials/lab-1/images/selectApp.jpeg)
 
 2. Select Custom App ![create app](https://github.com/scottblackdb/disaster-recovery-tracker/blob/main/lab-materials/lab-1/images/customApp.jpg)
 
