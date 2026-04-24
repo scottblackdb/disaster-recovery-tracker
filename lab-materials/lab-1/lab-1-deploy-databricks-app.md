@@ -39,12 +39,20 @@ Skim these items so deployment choices make sense:
 
 1. Click on the Create button. ![create app](https://github.com/scottblackdb/disaster-recovery-tracker/blob/main/lab-materials/lab-1/images/selectApp.jpeg)
 
-2. Select Custom App ![create app](https://github.com/scottblackdb/disaster-recovery-tracker/blob/main/lab-materials/lab-1/images/customApp.jpg)
+2. Select Custom App ![select app](https://github.com/scottblackdb/disaster-recovery-tracker/blob/main/lab-materials/lab-1/images/customApp.jpg)
 
 
-The app needs a **Lakebase** (managed PostgreSQL) database. You will attached one named **`fema-disaster-recovery`**.
+3. Name Your Application fema-claims-tracker-<your name> then click Next ![select app](https://github.com/scottblackdb/disaster-recovery-tracker/blob/main/lab-materials/lab-1/images/customApp.jpg)
 
-**Checkpoint:** You can see **`fema-disaster-recovery`** listed among your Lakebase / database resources.
+4. Configure Git Source. Add the git url of the project as the source for the app. Click Create App ![select app](https://github.com/scottblackdb/disaster-recovery-tracker/blob/main/lab-materials/lab-1/images/gitApp.jpg)
+
+5. Configure App Resources. Grant access to Lakebase and Sql Warehouse. ![select app](https://github.com/scottblackdb/disaster-recovery-tracker/blob/main/lab-materials/lab-1/images/finishApp.jpg)
+
+6. Configure App Resources. Grant access to Lakebase and Sql Warehouse. ![select app](https://github.com/scottblackdb/disaster-recovery-tracker/blob/main/lab-materials/lab-1/images/finishApp.jpg)
+
+7. Click the Deploy button. Use **`main`** as the branch and then click Deploy ![select app](https://github.com/scottblackdb/disaster-recovery-tracker/blob/main/lab-materials/lab-1/images/deployApp.jpg)
+
+8. It will take 1 or 2 minutes for the initial deployment. Future deployments will be much faster. After the deployment is complete click on the URL for the app and very you are able to login to the app.
 
 ### D.2 — Reference the database in `app.yaml` (required for deploy from repo)
 
