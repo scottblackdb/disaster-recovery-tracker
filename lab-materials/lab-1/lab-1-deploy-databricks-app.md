@@ -9,38 +9,12 @@
 ## Before you start
 
 - Use the **Databricks workspace URL** your instructor gives you (bookmark it if helpful).
-- Note any **resource names** (Lakebase, catalog, project) the instructor provides—the sample `app.yaml` references team-specific resources you may need to align with your environment.
 
 ---
 
-## Part A — Open the workspace
+## Part A — Understand the project (short read)
 
-1. Open a **new browser tab** (or window).
-2. Go to the **Databricks workspace URL** provided by your instructor.
-3. **Sign in** with the credentials.
-4. Confirm you see the Databricks **workspace home**.
-
----
-
-## Part B — Clone the repository into the workspace
-
-You will copy the app source from GitHub into Databricks so the platform can build and run it.
-
-1. In the Databricks UI, open **Workspace** (or **Repos**, depending on your workspace layout).
-2. Choose a folder where you keep course work (for example under your user folder), or use the path your instructor specifies.
-3. **Add** or **Create** a Git-backed folder:
-   - Select **GitHub** (or **Repos** → **Add repo**) as the source type.
-   - When prompted for the repository URL, enter:
-     - `https://github.com/scottblackdb/disaster-recovery-tracker`
-   - If the UI asks for **branch**, use `main` unless your instructor names another branch.
-4. Complete authentication if GitHub asks you to authorize Databricks (follow on-screen prompts).
-5. Wait until the repository **finishes cloning** and you can browse files such as `app.yaml`, `backend/`, and `frontend/` in the file browser.
-
-**Checkpoint:** You can open `app.yaml` in the workspace and see the app command and resources section.
-
----
-
-## Part C — Understand what you cloned (short read)
+In a web browser open the [repository](https://github.com/scottblackdb/disaster-recovery-tracker).
 
 Skim these items so deployment choices make sense:
 
@@ -49,13 +23,22 @@ Skim these items so deployment choices make sense:
 | `app.yaml` | Tells Databricks Apps how to start the app (`uvicorn` on port 8000) and which resources (e.g. Lakebase) to attach. |
 | `backend/` | Python **FastAPI** app (`backend.main:app`). |
 | `frontend/` | Web UI built into static files for production (Dockerfile builds it; local dev may differ). |
-| `Dockerfile` | Image build steps if your deployment path uses a container build. |
-
-Ask your instructor if your class uses **pre-edited** `app.yaml` or environment-specific names before you deploy.
 
 ---
 
-## Part D — Create Lakebase and add it as an app resource
+## Part B — Open the workspace
+
+1. Open a **new browser tab** (or window).
+2. Go to the **Databricks workspace URL** provided by your instructor.
+3. **Sign in** with the credentials.
+4. Confirm you see the Databricks **workspace home**.
+
+---
+
+## Part C — Create a Databricks App
+
+Click on the Create button. ![create app](https://github.com/scottblackdb/disaster-recovery-tracker/blob/main/lab-materials/lab-1/images/selectApp.png)
+
 
 The app needs a **Lakebase** (managed PostgreSQL) database. You will attached one named **`fema-disaster-recovery`**.
 
