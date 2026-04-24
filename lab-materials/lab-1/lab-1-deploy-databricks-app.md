@@ -37,7 +37,9 @@ Skim these items so deployment choices make sense:
 
 ## Part C — Create a Databricks App
 
-Click on the Create button. ![create app](https://github.com/scottblackdb/disaster-recovery-tracker/blob/main/lab-materials/lab-1/images/selectApp.png)
+1. Click on the Create button. ![create app](https://github.com/scottblackdb/disaster-recovery-tracker/blob/main/lab-materials/lab-1/images/selectApp.jpg)
+
+2. Select Custom App ![create app](https://github.com/scottblackdb/disaster-recovery-tracker/blob/main/lab-materials/lab-1/images/customApp.jpg)
 
 
 The app needs a **Lakebase** (managed PostgreSQL) database. You will attached one named **`fema-disaster-recovery`**.
