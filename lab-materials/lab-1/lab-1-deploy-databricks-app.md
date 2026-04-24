@@ -46,13 +46,11 @@ Skim these items so deployment choices make sense:
 
 4. Configure Git Source. Add the git url of the project as the source for the app. Click Create App ![select app](./images/gitApp.jpeg)
 
-5. Configure App Resources. Grant access to Lakebase and Sql Warehouse. ![select app](./images/finishApp.jpeg)
+5. Configure App Resources. Grant access to Lakebase and the production branch and Sql Warehouse. Do not change any other settings. ![select app](./images/finishApp.jpeg)
 
-6. Configure App Resources. Grant access to Lakebase and the production branch and Sql Warehouse. ![select app](./images/finishApp.jpeg)
+6. Click the Deploy button. Use **`main`** as the branch and then click Deploy ![select app](./images/deployApp.jpeg)
 
-7. Click the Deploy button. Use **`main`** as the branch and then click Deploy ![select app](./images/deployApp.jpeg)
-
-8. It will take 1 or 2 minutes for the initial deployment. Future deployments will be much faster. After the deployment is complete click on the URL for the app and very you are able to login to the app.
+7. It will take 1 or 2 minutes for the initial deployment. Future deployments will be much faster. After the deployment is complete click on the URL for the app and very you are able to login to the app.
 
 
 ## Congradulations On Creating Your Databricks App!
