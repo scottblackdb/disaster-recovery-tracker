@@ -2,16 +2,12 @@
 
 **Goal:** This lab walks you through the process of creating a new disaster recovery claim using the application, demonstrating how Databricks Foundational Models analyze images to assist with descriptions and categorization, and how Unity Catalog Volumes securely store your claim documents.
 
----
-
-## Part A - Navigate to the New Claim Form
+## Part A — Navigate to the New Claim Form
 
 1.  Open the Disaster Recovery Tracker application in your web browser.
 2.  Locate and click on the **"Submit Claim"** button/link, found in the top left corner.
 
----
-
-## Part B - Fill Out Initial Claim Details
+## Part B — Fill Out Initial Claim Details
 
 On the "Submit New Claim" form, you will find several fields to provide details about the incident.
 
@@ -21,14 +17,13 @@ On the "Submit New Claim" form, you will find several fields to provide details 
     *   *Example: "Montgomery County"*
 3.  **Applicant Name:** Enter the name of the person or entity making the claim.
     *   *Example: "John Doe"*
+4.  **Estimated Cost ($):** Leave this field blank for now. The AI may populate it automatically based on the document you upload in Part C.
 
 5.  **Submitted By:** This field will be pre-fill with your email address used to log into the app.
     
 6.  **FEMA Category (optional - AI can suggest):** Leave this set to **"Let AI Suggest"**. We'll let the Databricks Foundational Model determine the category based on the image analysis.
 
----
-
-## Part C - Utilize AI for Document Analysis and Categorization
+## Part C — Utilize AI for Document Analysis and Categorization
 
 This section demonstrates the power of Databricks Foundational Models in accelerating the claims process by analyzing documents.
 
@@ -39,9 +34,7 @@ This section demonstrates the power of Databricks Foundational Models in acceler
 3.  **Review AI-Generated Description and Cost:** Observe that the **"Description of Damage / Work Needed"** text area is automatically populated with the AI's analysis of the document. Also, note that the **"Estimated Cost ($)"** field, which you left blank, might now be populated by the AI if it successfully extracted a cost from the PDF.
 4.  **Refine Description (Optional):** If you wish to further enhance the description for clarity or FEMA compliance, you can click **"Refine with AI"**. This uses another AI model to clean up grammar and formatting. Review the suggested refinement and choose to "Use Refined Version" or "Keep Original".
 
----
-
-## Part D - Submit Your Claim
+## Part D — Submit Your Claim
 
 Once you are satisfied with the claim details, including the AI-generated description:
 

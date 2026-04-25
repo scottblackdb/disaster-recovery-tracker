@@ -46,7 +46,10 @@ Skim these items so deployment choices make sense:
 
 4. Configure Git Source. Add the git url of the project as the source for the app. Click Create App ![select app](./images/gitApp.jpeg)
 
-5. Configure App Resources. Grant access to Lakebase and the production branch and Sql Warehouse. Do not change any other settings. ![select app](./images/finishApp.jpeg)
+5. Configure App Resources. Grant access to Lakebase, the production branch, Sql Warehouse and a Unity Catalog Volume. Do not change any other settings. ![select app](./images/finishApp.jpeg)
+- **Lakebase** serves as the OLTP database and system of record for claims.
+- **SQL Warehouse** serves as the data warehouse for analytics and heavy reporting.
+- **UC Volume** serves as a filestore to hold non-tabular data such as images and files.
 
 6. Click the Deploy button. Use **`main`** as the branch and then click Deploy ![select app](./images/deployApp.jpeg)
 
