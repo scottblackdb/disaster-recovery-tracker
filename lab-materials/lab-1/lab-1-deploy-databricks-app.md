@@ -50,7 +50,7 @@ Skim these items so deployment choices make sense:
 
 6. Click the Deploy button. Use **`main`** as the branch and then click Deploy ![select app](./images/deployApp.jpeg)
 
-7. It will take 1 or 2 minutes for the initial deployment. Future deployments will be much faster. After the deployment is complete click on the URL for the app and very you are able to login to the app.
+7. It will take 2 to 3 minutes for the initial deployment. Future deployments will be much faster. After the deployment is complete click on the URL for the app and very you are able to login to the app.
 
 
 ## Congradulations On Creating Your Databricks App!
