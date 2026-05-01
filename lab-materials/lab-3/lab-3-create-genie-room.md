@@ -1,6 +1,6 @@
 # Lab 3: Build a Genie Room for the FEMA Claims Data
 
-**Goal:** Create a **Databricks AI/BI Genie space** over the FEMA claims tables so any user — including non-technical business users — can ask natural-language questions and get answers backed by governed SQL.
+**Goal:** Create a **Databricks Genie space** over the FEMA claims tables so any user — including non-technical business users — can ask natural-language questions and get answers backed by governed SQL.
 
 **Tables used:** `fema_claims_workshop_catalog.public.*` (the same tables the AI/BI dashboard from **Lab 2** queries).
 
@@ -9,40 +9,29 @@
 ## Before you start
 
 - **Lab 2 (instructor steps)** must be complete — the Lakebase → Lakehouse synced tables must already exist in `fema_claims_workshop_catalog.public.*`.
-- You need a running **SQL warehouse** (Serverless is fine).
-- You need permission to **create a Genie space** and **`SELECT`** on the four claims tables.
+- You need access to **SQL warehouse**.
+- You need permission **`SELECT`** on the four claims tables.
 
 ---
 
 ## Part A — Create a new Genie space
 
-1. In the Databricks workspace left nav, click **Genie**.
-2. Click **+ New** (top right) → **New Genie space**.
-3. Name the space **`FEMA Claims Genie`**.
-4. Pick the **SQL warehouse** you want Genie to run queries on.
-5. Click **Create**.
-
----
-
-## Part B — Add the claims tables to the space
-
-In the space's **Data** panel:
-
-1. Click **Add tables**.
-2. Browse to `fema_claims_workshop_catalog` → `public` and add **all four** tables:
+1. In the Databricks workspace left nav, click **Genie Spaces**.
+2. Click **+ New** (top right).
+3. Browse to `fema_claims_workshop_catalog` → `public` and add **all four** tables:
    - `claims`
    - `fema_categories`
    - `documents`
    - `claim_status_history`
-3. Click **Confirm**.
+---
 
 > Genie reads the tables' schemas and column comments automatically. The richer the table comments, the better Genie's answers will be.
 
 ---
 
-## Part C — Give Genie business context (instructions)
+## Part B — Give Genie business context (instructions)
 
-Genie answers are dramatically better when you tell it **what the data means**, not just **what columns exist**. Open the space's **Instructions** tab and paste the following as general instructions:
+Genie answers are dramatically better when you tell it **what the data means**, not just **what columns exist**. Open the space's **Instructions** tab in the top right corner and paste the following as general instructions:
 
 ```text
 This Genie space answers questions about FEMA disaster recovery claims submitted
@@ -60,11 +49,6 @@ Key tables:
 - documents: supporting documents attached to a claim. claim_id joins to claims.id.
 - claim_status_history: audit log of every status transition for a claim.
 
-Default joins:
-- claims.fema_category_id = fema_categories.id (LEFT JOIN — categories are optional)
-- documents.claim_id = claims.id
-- claim_status_history.claim_id = claims.id
-
 Default behavior:
 - "Total claims" means COUNT(*) over claims.
 - "Claim amount" or "claim value" defaults to estimated_cost; use approved_amount only if the user says "approved".
@@ -74,47 +58,36 @@ Default behavior:
 
 Save the instructions.
 
+Default joins:
+- claims.fema_category_id = fema_categories.id (LEFT JOIN — categories are optional)
+- documents.claim_id = claims.id
+- claim_status_history.claim_id = claims.id
+
+
 ---
 
-## Part D — Add sample questions
+## Part C — Add sample questions
 
-Sample questions are what users see the moment they open the space. They double as **few-shot examples** Genie uses to learn how to write queries against your tables. Open the **Sample questions** tab and add the following:
+On the about tabe there a few sample questions. Sample questions are what users see the moment they open the space. They double as **few-shot examples** Genie uses to learn how to write queries against your tables. Open the **Sample questions** tab and add the following:
 
 ### Volume & status
 1. How many claims have been submitted in total?
 2. How many claims are in each status?
-3. How many claims were submitted this week?
-4. How many claims are still in `submitted` status (not yet AI-processed or approved)?
+
 
 ### Cost & approval
-5. What is the total estimated cost across all claims?
-6. What is the total approved amount so far?
-7. What is the approval rate (approved claims / total claims)?
-8. What is the average estimated cost per FEMA category?
+3. What is the total estimated cost across all claims?
 
 ### Geography & incidents
-9. Which county has the highest total estimated cost?
-10. Show me the top 5 incidents by number of claims.
-11. Which incident has the largest total approved amount?
+4. Which county has the highest total estimated cost?
+5. Show me the top 5 incidents by number of claims.
 
 ### FEMA categories
-12. How many claims fall into each FEMA category?
-13. Which FEMA category has the highest average estimated cost?
-14. How many claims are uncategorized?
-
-### AI quality signals
-15. How many claims have an AI confidence score below 0.5?
-16. What is the average AI confidence score by FEMA category?
-
-### Documents
-17. What percentage of claims have at least one supporting document?
-18. Which file types are most common across supporting documents?
-19. Which claim has the most attached documents?
+6. How many claims fall into each FEMA category?
 
 ### Activity & history
-20. Show me the 10 most recent status changes.
-21. Which user has changed the most claim statuses?
-22. Which claims moved from `submitted` to `approved` in the last 7 days?
+7. Show me the 10 most recent status changes.
+8. Which user has changed the most claim statuses?
 
 ---
 
@@ -124,16 +97,18 @@ Sample questions are what users see the moment they open the space. They double 
 2. Try a few sample questions and a few of your own:
    - *"Which counties had more than 5 claims last month?"*
    - *"What's the median estimated cost for claims with AI confidence above 0.8?"*
-3. For each answer, click **Show generated code** to see the SQL Genie wrote and verify it ran against `fema_claims_workshop_catalog.public.*`.
-4. If a question produces a wrong or awkward query, click **👎** and add a **Verified answer** with the correct SQL. Genie will use that pattern next time.
+   - *"How many claims were submitted this week?"*
+   - *"What is the total approved amount so far?*
+   - *"Which county has the highest total estimated cost?*
 
+3. For each answer, click **Show generated code** to see the SQL Genie wrote and verify it ran against `fema_claims_workshop_catalog.public.*`.
+4. If a question produces a wrong or awkward query, click **👎**.  Administrators can review and correct wrong answers to improve Genie over time.
 ---
 
 ## Part F — Share the space
 
 1. Click **Share** in the top right of the space.
 2. Add the workshop group (or `account users`) with **Can run** permission.
-3. Optionally enable **embedding** so the Genie space can be dropped into the AI/BI dashboard from **Lab 2** as a tile.
 
 ---
 
@@ -145,7 +120,7 @@ So far you've used Genie inside the **full Databricks workspace** — the same U
 
 1. Open a **new browser tab**.
 2. Go to your workspace URL with `/one` appended, for example:
-   `https://<your-workspace>.cloud.databricks.com/one`
+   `https://<your-workspace url>/one`
    *(If that doesn't load, click your profile picture in the top-right of the workspace and choose **Switch to Databricks One**.)*
 3. Sign in with the same credentials you've been using.
 
@@ -183,7 +158,5 @@ Together with **Lab 1** (the app writing into Lakebase) and **Lab 2** (Lakebase 
 
 - **Genie says it can't find a table:** Confirm the four tables are listed under the **Data** tab and that you have `SELECT` on `fema_claims_workshop_catalog.public.*`.
 - **Answers reference the wrong column** (e.g. uses `approved_amount` when you said "claim cost"): Tighten the **Instructions** in Part C — Genie heavily weights instruction text over column names alone.
-- **Queries are slow:** Switch the space to a larger or Serverless SQL warehouse in the space's settings.
 - **A specific question always answers wrong:** Add a **Verified answer** with the correct SQL — Genie will reuse it for similar future questions.
 - **Databricks One is empty / the Genie space is missing:** The space hasn't been shared with your user yet. Re-check **Part F** and confirm your account is in the group you granted **Can run** to.
-- **`/one` URL doesn't load:** Databricks One must be enabled at the account level. If it isn't, click your profile picture → **Switch to Databricks One**, or ask your account admin to enable it.

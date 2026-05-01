@@ -16,7 +16,7 @@ Lakebase branches are **copy-on-write** clones of a Postgres database. Creating 
 
 ## Before you start
 
-- You completed **Lab 1**, so the Databricks App `fema-claims-tracker-<your name>` and the `fema-disaster-recovery` Lakebase instance both exist.
+- You completed **Lab 1**, so the Databricks App `fema-claims-tracker-<your name>` exist.
 - You can **edit your own app's resources** (you deployed it, so you should).
 - You will **not** change any production / main-branch data in this lab.
 
@@ -34,12 +34,12 @@ Lakebase branches are **copy-on-write** clones of a Postgres database. Creating 
 ## Part B — Create your own branch
 
 1. From the **Branches** tab, click **Create branch**.
-2. **Name:** `dev-<your-name>` (for example `dev-jdoe`). Lowercase letters, numbers, and hyphens only.
+2. **Name:** `fema-disaster-recovery-<your-name>` (for example `fema-disaster-recovery-jdoe`). Lowercase letters, numbers, and hyphens only.
 3. **Parent branch:** **`main`**.
 4. **Branch from:** **Latest** (point-in-time = now). This snapshots all four tables (`claims`, `fema_categories`, `documents`, `claim_status_history`) at the current moment.
 5. Click **Create**.
 
-The branch typically becomes available in well under a minute. When it's ready it will show its own **connection endpoint** (host + port). You now have a private, fully writable copy of the FEMA database that **nobody else in the workshop can see or affect**.
+The branch typically becomes available in just a few seconds regardless of database size. When it's ready it will show its own **connection endpoint** (host + port). You now have a private, fully writable copy of the FEMA database that **nobody else in the workshop can see or affect**.
 
 > Behind the scenes Lakebase didn't physically copy any data — it created copy-on-write metadata. Reads from your branch fall through to the parent's storage until you write something, at which point only the changed pages are diverged. That's why branching is fast and cheap.
 
@@ -49,11 +49,11 @@ The branch typically becomes available in well under a minute. When it's ready i
 
 Lakebase Postgres autoscales **compute** independently of storage — that's how branches stay cheap and how you only pay for the work you actually do.
 
-> Only change settings on **your own** `dev-<your-name>` branch in this part. **Do not** change `main`'s settings — that branch is shared with the rest of the class.
+> Only change settings on **your own** `fema-disaster-recovery-<your-name>` branch in this part. **Do not** change `main`'s settings — that branch is shared with the rest of the class.
 
 ### Tour the settings
 
-1. From the `fema-disaster-recovery` instance page, open the **Branches** tab and click your **`dev-<your-name>`** branch.
+1. From the `fema-disaster-recovery` instance page, open the **Branches** tab and click your **`fema-disaster-recovery-<your-name>`** branch.
 2. Open the branch's **Compute** (or **Capacity** / **Settings**) tab.
 3. Locate and **observe** these settings — leave them at their current values:
 
@@ -95,7 +95,7 @@ Now we'll switch your `fema-claims-tracker-<your name>` app to read from and wri
 2. Click the **Resources** (or **Settings → Resources**) tab.
 3. Find the existing **Lakebase** resource that's wired up to the `fema-disaster-recovery` instance — it's the one named `fema-disaster-recovery` in `app.yaml`.
 4. Click **Edit** on that resource.
-5. Change the **branch** dropdown from **`main`** to your new branch, **`dev-<your-name>`**.
+5. Change the **branch** dropdown from **`main`** to your new branch, **`fema-disaster-recovery-<your-name>`**.
 6. Leave every other field (database, role, permissions) exactly as it was.
 7. Click **Save**.
 8. Back on the app's main page, click **Deploy** and choose branch **`main`** of the **Git repository** (we are only re-deploying the app code with the new resource binding — we are **not** changing anything in Git).
