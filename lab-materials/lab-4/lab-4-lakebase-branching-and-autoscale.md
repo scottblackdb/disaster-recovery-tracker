@@ -24,20 +24,22 @@ Lakebase branches are **copy-on-write** clones of a Postgres database. Creating 
 
 ## Part A — Open the Lakebase instance
 
-1. In the Databricks workspace left nav, click **Compute → Database instances**.
-2. Click the **`fema-disaster-recovery`** instance.
-3. Confirm the instance shows status **Running**.
-4. Open the **Branches** tab. You should see a single existing branch — typically named **`main`** — that is currently serving the workshop's production data and the Lab 2 dashboard.
-
+1. In the Databricks workspace top right view switcher nav, click **Lakebase Postgress**.
+2. Click the **`Diaster Recovery Tracker`** project.
+4. On the left vertical menu select **Branches**. You should see a single existing branch named **`production`** — that is currently serving the workshop's production data and the Lab 2 dashboard.
+![branches](./images/branches.jpg)
 ---
 
 ## Part B — Create your own branch
 
-1. From the **Branches** tab, click **Create branch**.
-2. **Name:** `fema-disaster-recovery-<your-name>` (for example `fema-disaster-recovery-jdoe`). Lowercase letters, numbers, and hyphens only.
-3. **Parent branch:** **`main`**.
-4. **Branch from:** **Latest** (point-in-time = now). This snapshots all four tables (`claims`, `fema_categories`, `documents`, `claim_status_history`) at the current moment.
-5. Click **Create**.
+1. From the **Branches** tab, click **New Branch** button in the top right corner.
+2. **Name:** `fema-disaster-recovery-<your-name>` (for example `fema-disaster-recovery-johndoe`). Lowercase letters, numbers, and hyphens only.
+3. **Parent branch:** **`production`**.
+4. Ensure the the checkbox to delete after 1 day remains checked.
+5. **Branch from:** **Latest** (point-in-time = now). This snapshots all four tables (`claims`, `fema_categories`, `documents`, `claim_status_history`) at the current moment.
+6. Click **Create**.
+![createBranch](./images/createBranch.jpg)
+7. After creating the branch a dialog will show the connection information. Click the close button.
 
 The branch typically becomes available in just a few seconds regardless of database size. When it's ready it will show its own **connection endpoint** (host + port). You now have a private, fully writable copy of the FEMA database that **nobody else in the workshop can see or affect**.
 
@@ -49,11 +51,11 @@ The branch typically becomes available in just a few seconds regardless of datab
 
 Lakebase Postgres autoscales **compute** independently of storage — that's how branches stay cheap and how you only pay for the work you actually do.
 
-> Only change settings on **your own** `fema-disaster-recovery-<your-name>` branch in this part. **Do not** change `main`'s settings — that branch is shared with the rest of the class.
+> Only change settings on **your own** `fema-disaster-recovery-<your-name>` branch in this part. **Do not** change `productions`'s settings — that branch is shared with the rest of the class.
 
 ### Tour the settings
 
-1. From the `fema-disaster-recovery` instance page, open the **Branches** tab and click your **`fema-disaster-recovery-<your-name>`** branch.
+1. From the `fema-disaster-recovery` project page, open the **Branches** tab and click your **`fema-disaster-recovery-<your-name>`** branch.
 2. Open the branch's **Compute** (or **Capacity** / **Settings**) tab.
 3. Locate and **observe** these settings — leave them at their current values:
 
@@ -63,7 +65,7 @@ Lakebase Postgres autoscales **compute** independently of storage — that's how
 | **Maximum capacity** | The largest size the branch's compute will scale **up** to under load. It grows toward this value as queries queue up. |
 | **Scale to zero** (a.k.a. **Auto-suspend**) | If enabled, the branch's compute pauses entirely after a period of inactivity, dropping compute cost to **$0**. The first query after a pause incurs a brief cold-start. |
 | **Auto-resume** | When scale-to-zero is on, the compute automatically wakes back up the moment a query arrives. The user sees a one-time delay; nothing fails. |
-| **Read-replica scaling** *(if visible)* | Whether read-only replicas can be added under heavy read load. |
+| **Read-replica scaling** | Whether read-only replicas can be added under heavy read load. |
 
 4. Hover over the **capacity history graph** (if shown). You'll see how the branch's CU consumption rises and falls with activity.
 
@@ -91,11 +93,12 @@ This is the **one setting** you should adjust in this lab — and only on your o
 
 Now we'll switch your `fema-claims-tracker-<your name>` app to read from and write to **your** branch instead of `main`. Production data stays exactly as it is for everyone else — your app will just see the snapshot you took in Part B and any changes **you** make from here on.
 
-1. In the left nav, click **Compute → Apps** and open your **`fema-claims-tracker-<your name>`** app.
-2. Click the **Resources** (or **Settings → Resources**) tab.
-3. Find the existing **Lakebase** resource that's wired up to the `fema-disaster-recovery` instance — it's the one named `fema-disaster-recovery` in `app.yaml`.
-4. Click **Edit** on that resource.
+1. From the top right view switcher, click **Databricks Apps** and open your **`fema-claims-tracker-<your name>`** app.
+2. From the vertical left menu click the **Settings**).
+3. Go to the **Resources** section.
+4. Find the existing **Lakebase** resource that's wired up to the `Disaster Recovery Tacker` instance — it's the one named `fema-disaster-recovery` in `app.yaml`.
 5. Change the **branch** dropdown from **`main`** to your new branch, **`fema-disaster-recovery-<your-name>`**.
+![changeBranch](./images/changeBranch.jpg)
 6. Leave every other field (database, role, permissions) exactly as it was.
 7. Click **Save**.
 8. Back on the app's main page, click **Deploy** and choose branch **`main`** of the **Git repository** (we are only re-deploying the app code with the new resource binding — we are **not** changing anything in Git).
