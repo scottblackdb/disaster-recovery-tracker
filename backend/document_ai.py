@@ -289,12 +289,38 @@ def _float_or_none(v: Any) -> Optional[float]:
     return None
 
 
+_DATE_FORMATS = (
+    "%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y",
+    "%B %d, %Y", "%b %d, %Y", "%d %B %Y", "%d %b %Y",
+)
+
+
+def _date_or_none(v: Any) -> Optional[str]:
+    """Return an ISO date string (YYYY-MM-DD) or None. Unwraps LLM dict wrappers like {'value': '...'}."""
+    from datetime import datetime as _dt
+    if v is None:
+        return None
+    if isinstance(v, dict):
+        v = v.get("value") or v.get("date") or next(iter(v.values()), None)
+    if v is None:
+        return None
+    s = str(v).strip()
+    if not s:
+        return None
+    for fmt in _DATE_FORMATS:
+        try:
+            return _dt.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return None
+
+
 def document_update_values_from_ai(ai_result: dict) -> tuple:
     """Column values for UPDATE documents SET ... from extract_with_ai output."""
     return (
         _str_or_none(ai_result.get("vendor")),
         _float_or_none(ai_result.get("cost")),
-        _str_or_none(ai_result.get("date")),
+        _date_or_none(ai_result.get("date")),
         _str_or_none(ai_result.get("fema_category")),
         _str_or_none(ai_result.get("summary")),
         _str_or_none(ai_result.get("damage_description")),
