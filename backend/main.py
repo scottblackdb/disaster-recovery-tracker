@@ -140,10 +140,11 @@ def get_db_connection():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    cred = w.postgres.generate_database_credential(endpoint=ENDPOINT_NAME)
     await asyncio.to_thread(
         ensure_database_schema,
         conninfo=_build_conninfo(),
-        connection_class=OAuthConnection,
+        password=cred.token,
         logger=_logger,
     )
     yield

@@ -55,10 +55,16 @@ def _executable_sql_chunks(sql_text: str) -> list[str]:
 def ensure_database_schema(
     *,
     conninfo: str,
-    connection_class: type[psycopg.Connection],
+    password: str,
     logger: logging.Logger,
 ) -> None:
-    """Create tables and seed FEMA categories when any required table is missing."""
+    """Create tables and seed FEMA categories when any required table is missing.
+
+    Use the same Lakebase OAuth token as ``password`` that the app uses for
+    :class:`OAuthConnection` (pass ``cred.token`` from
+    ``w.postgres.generate_database_credential``). A plain connection avoids passing
+    ``connection_class`` through libpq, which rejects it as an unknown option in some runtimes.
+    """
     bootstrap_file = _bootstrap_path()
     if not bootstrap_file.is_file():
         logger.error("bootstrap.sql not found at %s — cannot initialize schema", bootstrap_file)
@@ -72,7 +78,7 @@ def ensure_database_schema(
 
     with psycopg.connect(
         conninfo,
-        connection_class=connection_class,
+        password=password,
         row_factory=dict_row,
         autocommit=False,
     ) as conn:
