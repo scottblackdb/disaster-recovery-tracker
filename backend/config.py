@@ -17,7 +17,7 @@ ENDPOINT_NAME = os.getenv(
 PGUSER = os.getenv("PGUSER", "")
 PGHOST = os.getenv("PGHOST", "")
 PGPORT = os.getenv("PGPORT", "5432")
-PGDATABASE = os.getenv("PGDATABASE", "disaster_recovery_db")
+PGDATABASE = os.getenv("PGDATABASE", "databricks_postgres")
 PGSSLMODE = os.getenv("PGSSLMODE", "require")
 
 # Same cap for preview and any shared upload path
