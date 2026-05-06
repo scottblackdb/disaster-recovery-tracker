@@ -1,6 +1,6 @@
 # Lab 4: Lakebase Branching, Autoscaling, and Pointing the App at a Branch
 
-**Goal:** Create your own **branch** of the `fema-disaster-recovery` Lakebase database, take a quick tour of **Lakebase autoscaling**, and then switch the Databricks App from **Lab 1** to run against your new branch — all without touching the production data the rest of the workshop is using.
+**Goal:** Create your own **branch** of the `Disaster Recovery Tracker` Lakebase database, take a quick tour of **Lakebase autoscaling**, and then switch the Databricks App from **Lab 1** to run against your new branch — all without touching the production data the rest of the workshop is using.
 
 ---
 
@@ -22,7 +22,7 @@ Lakebase branches are **copy-on-write** clones of a Postgres database. Creating 
 
 ---
 
-## Part A — Open the Lakebase instance
+## Part A — Open the Lakebase project
 
 1. In the Databricks workspace top right view switcher nav, click **Lakebase Postgress**.
 2. Click the **`Diaster Recovery Tracker`** project.
@@ -33,7 +33,7 @@ Lakebase branches are **copy-on-write** clones of a Postgres database. Creating 
 ## Part B — Create your own branch
 
 1. From the **Branches** tab, click **New Branch** button in the top right corner.
-2. **Name:** `fema-disaster-recovery-<your-name>` (for example `fema-disaster-recovery-johndoe`). Lowercase letters, numbers, and hyphens only.
+2. **Name:** `disaster-recovery-tracker-<your-name>` (for example `fema-disaster-recovery-johndoe`). Lowercase letters, numbers, and hyphens only.
 3. **Parent branch:** **`production`**.
 4. Ensure the the checkbox to delete after 1 day remains checked.
 5. **Branch from:** **Latest** (point-in-time = now). This snapshots all four tables (`claims`, `fema_categories`, `documents`, `claim_status_history`) at the current moment.
@@ -51,11 +51,11 @@ The branch typically becomes available in just a few seconds regardless of datab
 
 Lakebase Postgres autoscales **compute** independently of storage — that's how branches stay cheap and how you only pay for the work you actually do.
 
-> Only change settings on **your own** `fema-disaster-recovery-<your-name>` branch in this part. **Do not** change `productions`'s settings — that branch is shared with the rest of the class.
+> Only change settings on **your own** `disaster-recovery-tracker-<your-name>` branch in this part. **Do not** change `productions`'s settings — that branch is shared with the rest of the class.
 
 ### Tour the settings
 
-1. From the `fema-disaster-recovery` project page, open the **Branches** tab and click your **`fema-disaster-recovery-<your-name>`** branch.
+1. From the `Disaster Recovery Tracker` project page, open the **Branches** tab and click your **`disaster-recovery-tracker-<your-name>`** branch.
 2. Open the branch's **Compute** (or **Capacity** / **Settings**) tab.
 3. Locate and **observe** these settings — leave them at their current values:
 
@@ -96,8 +96,8 @@ Now we'll switch your `fema-claims-tracker-<your name>` app to read from and wri
 1. From the top right view switcher, click **Databricks Apps** and open your **`fema-claims-tracker-<your name>`** app.
 2. From the vertical left menu click the **Settings**).
 3. Go to the **Resources** section.
-4. Find the existing **Lakebase** resource that's wired up to the `Disaster Recovery Tacker` instance — it's the one named `fema-disaster-recovery` in `app.yaml`.
-5. Change the **branch** dropdown from **`main`** to your new branch, **`fema-disaster-recovery-<your-name>`**.
+4. Find the existing **Lakebase** resource that's wired up to the `Disaster Recovery Tacker` instance — it's the one named `disaster-recovery-lakebase` in `app.yaml`.
+5. Change the **branch** dropdown from **`main`** to your new branch, **`disaster-recovery-tracker-<your-name>`**.
 ![changeBranch](./images/changeBranch.jpg)
 6. Leave every other field (database, role, permissions) exactly as it was.
 7. Click **Save**.

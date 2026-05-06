@@ -61,4 +61,4 @@ Skim these items so deployment choices make sense:
 ## Need help?
 
 - **Build fails:** Open build logs; missing `app.yaml` or wrong root folder is a common mistake.
-- **Runtime errors:** Check app logs and confirm the **`fema-disaster-recovery`** resource in `app.yaml` matches the Lakebase instance and that the app’s **Resources** list includes that database.
+- **Runtime errors:** Check app logs and confirm the **`disaster-recovery-lakebase`** resource in `app.yaml` matches the Lakebase project and that the app’s **Resources** list includes that database.
