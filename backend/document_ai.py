@@ -268,15 +268,36 @@ Return ONLY valid JSON, no markdown.""",
         return _ai_failure_payload(e)
 
 
+def _str_or_none(v: Any) -> Optional[str]:
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return v
+    return str(v)
+
+
+def _float_or_none(v: Any) -> Optional[float]:
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        try:
+            return float(v.replace(",", "").replace("$", "").strip())
+        except ValueError:
+            return None
+    return None
+
+
 def document_update_values_from_ai(ai_result: dict) -> tuple:
     """Column values for UPDATE documents SET ... from extract_with_ai output."""
     return (
-        ai_result.get("vendor"),
-        ai_result.get("cost"),
-        ai_result.get("date"),
-        ai_result.get("fema_category"),
-        ai_result.get("summary"),
-        ai_result.get("damage_description"),
+        _str_or_none(ai_result.get("vendor")),
+        _float_or_none(ai_result.get("cost")),
+        _str_or_none(ai_result.get("date")),
+        _str_or_none(ai_result.get("fema_category")),
+        _str_or_none(ai_result.get("summary")),
+        _str_or_none(ai_result.get("damage_description")),
     )
 
 
