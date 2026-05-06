@@ -63,6 +63,22 @@ CREATE TABLE IF NOT EXISTS claim_status_history (
 
 -- statement-break
 
+ALTER TABLE fema_categories REPLICA IDENTITY FULL;
+
+-- statement-break
+
+ALTER TABLE claims REPLICA IDENTITY FULL;
+
+-- statement-break
+
+ALTER TABLE documents REPLICA IDENTITY FULL;
+
+-- statement-break
+
+ALTER TABLE claim_status_history REPLICA IDENTITY FULL;
+
+-- statement-break
+
 CREATE INDEX IF NOT EXISTS idx_documents_claim_id ON documents (claim_id);
 
 -- statement-break

@@ -557,6 +557,13 @@ def _insert_and_process_document(
                         WHERE id = %s
                     """, (cat["id"], ai_result.get("confidence", 0), ai_result.get("flags"), claim_id))
 
+            # Successful PDF extraction via SQL — move claim to Under Review
+            if ai_result.get("_extraction_source") == "sql_ai_extract":
+                cur.execute("""
+                    UPDATE claims SET status = 'under_review', updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s AND status IN ('submitted', 'ai_processed')
+                """, (claim_id,))
+
             # Estimate documents: merge extracted total into claim cost when unset
             extracted_cost = ai_result.get("cost")
             if extracted_cost is not None:
@@ -582,8 +589,8 @@ def _insert_and_process_document(
 
 
 @app.post("/api/claims/{claim_id}/documents")
-async def upload_document(claim_id: int, request: Request, file: UploadFile = File(...)):
-    content = await file.read()
+def upload_document(claim_id: int, request: Request, file: UploadFile = File(...)):
+    content = file.file.read()
     actor = _status_history_actor(request)
     return _insert_and_process_document(claim_id, content, file.filename, file.content_type, changed_by=actor)
 

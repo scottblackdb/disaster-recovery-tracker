@@ -193,7 +193,6 @@ def extract_with_ai(
         if warehouse_configured() and estimate_file_uses_sql_pipeline(filename, content_type):
             sql_payload = extract_estimate_via_sql(volume_path, filename, content_type)
             if sql_payload:
-                sql_payload.pop("_extraction_source", None)
                 return sql_payload
 
     sql_extract_ran = bool(
