@@ -23,8 +23,7 @@ from databricks_auth import w
 
 _logger = logging.getLogger(__name__)
 
-# Same field list as: ai_extract(..., '["invoice_id","vendor_name","total_amount","invoice_date"]')
-ESTIMATE_EXTRACT_SCHEMA = '["invoice_id","vendor_name","total_amount","invoice_date"]'
+ESTIMATE_EXTRACT_SCHEMA = '["invoice_id","vendor_name","total_amount","invoice_date","summary"]'
 
 
 def validate_uc_single_file_volume_path(volume_path: str) -> bool:
@@ -68,20 +67,19 @@ def warehouse_configured() -> bool:
 def _estimate_fields_from_ai_extract_json(data: dict) -> dict[str, Any]:
     """Normalize ai_extract JSON.
 
-    Warehouses often return VARIANT shaped like ``d:response:invoice_id`` (SQL), i.e. nested under
-    ``response``, not flat top-level keys.
+    Handles two shapes:
+    - Fields nested under a ``response`` key.
+    - Each field value wrapped as ``{"value": "..."}`` (the current ai_extract output format).
     """
     nested = data.get("response")
-    layer: dict[str, Any]
-    if isinstance(nested, dict):
-        layer = nested
-    else:
-        layer = data
+    layer: dict[str, Any] = nested if isinstance(nested, dict) else data
 
     def pick(key: str) -> Any:
         v = layer.get(key)
         if v is None and layer is not data:
             v = data.get(key)
+        if isinstance(v, dict):
+            v = v.get("value")
         return v
 
     return {
@@ -89,6 +87,7 @@ def _estimate_fields_from_ai_extract_json(data: dict) -> dict[str, Any]:
         "vendor_name": pick("vendor_name"),
         "total_amount": pick("total_amount"),
         "invoice_date": pick("invoice_date"),
+        "summary": pick("summary"),
     }
 
 
@@ -122,26 +121,17 @@ def _map_ai_extract_variant_to_payload(variant_json: Optional[str]) -> Optional[
         return None
 
     fields = _estimate_fields_from_ai_extract_json(data)
-    invoice_id = fields.get("invoice_id")
     vendor = fields.get("vendor_name")
     cost = _coerce_cost(fields.get("total_amount"))
     inv_date = fields.get("invoice_date")
-    date_str = None
-    if inv_date is not None:
-        date_str = str(inv_date).strip()[:32] or None
-
-    summary_parts = []
-    if invoice_id:
-        summary_parts.append(f"Invoice / estimate ID: {invoice_id}")
-
-    summary = ". ".join(summary_parts) if summary_parts else None
+    date_str = str(inv_date).strip()[:32] if inv_date is not None else None
 
     return {
         "vendor": vendor if vendor else None,
         "cost": cost,
         "date": date_str,
         "fema_category": None,
-        "summary": summary,
+        "summary": fields.get("summary") or None,
         "damage_description": None,
         "confidence": 80,
         "flags": None,
