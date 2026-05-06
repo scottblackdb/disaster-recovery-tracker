@@ -12,9 +12,11 @@ from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional
 
+import asyncio
 import hashlib
 import logging
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,6 +58,8 @@ from volume_storage import (
     upload_to_volume,
 )
 
+from db_bootstrap import ensure_database_schema
+
 _logger = logging.getLogger("backend")
 _logger.setLevel(logging.INFO)
 _logger.propagate = False
@@ -77,17 +81,6 @@ _VOLUME_FILE_ABSENT_ERROR_MARKERS: frozenset[str] = frozenset(
 def _volume_delete_error_is_absent(err: Exception) -> bool:
     err_l = str(err).lower()
     return any(m in err_l for m in _VOLUME_FILE_ABSENT_ERROR_MARKERS)
-
-
-app = FastAPI(title="Disaster Recovery Tracker API")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 class OAuthConnection(psycopg.Connection):
@@ -143,6 +136,32 @@ def get_db_connection():
             open=True,
         )
     return _pool.connection()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await asyncio.to_thread(
+        ensure_database_schema,
+        conninfo=_build_conninfo(),
+        connection_class=OAuthConnection,
+        logger=_logger,
+    )
+    yield
+    global _pool
+    if _pool is not None:
+        _pool.close()
+        _pool = None
+
+
+app = FastAPI(title="Disaster Recovery Tracker API", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def _json_default(obj):
