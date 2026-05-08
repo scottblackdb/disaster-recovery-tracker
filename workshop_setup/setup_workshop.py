@@ -18,9 +18,18 @@ try:
     from databricks.sdk.common.lro import LroOptions
     from databricks.sdk.errors import AlreadyExists, ResourceAlreadyExists
     from databricks.sdk.service import iam, postgres
+    from databricks.sdk.service.catalog import VolumeType
 except ImportError:
     print("Error: databricks-sdk is required.  pip install databricks-sdk")
     sys.exit(1)
+
+
+# Backend (backend/config.py) reads files from VOLUME_PATH, defaulting to
+# /Volumes/fema/default/filestore. Keep these defaults in sync with that.
+DEFAULT_CATALOG = "fema"
+DEFAULT_BRONZE_SCHEMA = "bronze"
+DEFAULT_VOLUME_SCHEMA = "default"
+DEFAULT_VOLUME_NAME = "filestore"
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +125,95 @@ def create_lakebase(w: WorkspaceClient, display_name: str, pg_version: int = 17)
 
 
 # ---------------------------------------------------------------------------
+# Unity Catalog (catalog, schemas, volume referenced by the backend)
+# ---------------------------------------------------------------------------
+
+def _is_already_exists(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(k in msg for k in ("already exists", "conflict", "409"))
+
+
+def _first_external_location_url(w: WorkspaceClient) -> str | None:
+    """Return the URL of the first user-defined external location, or None.
+
+    Skips workspace-internal/auto-managed locations (the metastore's
+    `__databricks_managed_storage_location` cannot be used as a catalog
+    MANAGED LOCATION — it's reserved for Default Storage).
+    """
+    try:
+        for loc in w.external_locations.list():
+            if not loc.url:
+                continue
+            if loc.name and loc.name.startswith("__databricks_managed_"):
+                continue
+            return loc.url
+    except Exception as e:
+        print(f"  Note: could not list external locations: {e}")
+    return None
+
+
+def create_uc_resources(
+    w: WorkspaceClient,
+    catalog_name: str,
+    bronze_schema: str = DEFAULT_BRONZE_SCHEMA,
+    volume_schema: str = DEFAULT_VOLUME_SCHEMA,
+    volume_name: str = DEFAULT_VOLUME_NAME,
+) -> None:
+    """Create the catalog, bronze + volume schemas, and managed volume the backend uses."""
+    print(f"\nCreating Unity Catalog resources (catalog: {catalog_name})...")
+
+    # Catalog. Workspaces without a metastore storage root require an explicit
+    # MANAGED LOCATION; fall back to the first external location's URL.
+    storage_root = _first_external_location_url(w)
+    try:
+        w.catalogs.create(name=catalog_name, storage_root=storage_root)
+        loc_note = f" (storage_root={storage_root})" if storage_root else ""
+        print(f"  [+] catalog '{catalog_name}'{loc_note}")
+    except (AlreadyExists, ResourceAlreadyExists):
+        print(f"  [~] catalog '{catalog_name}' (already exists)")
+    except Exception as e:
+        if _is_already_exists(e):
+            print(f"  [~] catalog '{catalog_name}' (already exists)")
+        else:
+            print(f"  [!] catalog '{catalog_name}' — {e}")
+            sys.exit(1)
+
+    # Schemas (bronze + the schema that holds the volume; UC auto-creates 'default'
+    # but we attempt it idempotently in case the catalog was created without one)
+    for schema in {bronze_schema, volume_schema}:
+        try:
+            w.schemas.create(name=schema, catalog_name=catalog_name)
+            print(f"  [+] schema '{catalog_name}.{schema}'")
+        except (AlreadyExists, ResourceAlreadyExists):
+            print(f"  [~] schema '{catalog_name}.{schema}' (already exists)")
+        except Exception as e:
+            if _is_already_exists(e):
+                print(f"  [~] schema '{catalog_name}.{schema}' (already exists)")
+            else:
+                print(f"  [!] schema '{catalog_name}.{schema}' — {e}")
+                sys.exit(1)
+
+    # Managed volume referenced by backend VOLUME_PATH
+    full_volume = f"/Volumes/{catalog_name}/{volume_schema}/{volume_name}"
+    try:
+        w.volumes.create(
+            catalog_name=catalog_name,
+            schema_name=volume_schema,
+            name=volume_name,
+            volume_type=VolumeType.MANAGED,
+        )
+        print(f"  [+] volume '{full_volume}'")
+    except (AlreadyExists, ResourceAlreadyExists):
+        print(f"  [~] volume '{full_volume}' (already exists)")
+    except Exception as e:
+        if _is_already_exists(e):
+            print(f"  [~] volume '{full_volume}' (already exists)")
+        else:
+            print(f"  [!] volume '{full_volume}' — {e}")
+            sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # Users
 # ---------------------------------------------------------------------------
 
@@ -173,11 +271,14 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
-  # Full setup — Lakebase + users:
+  # Full setup — Lakebase + UC catalog/schemas/volume + users:
   python setup_workshop.py --users-file participants.txt
 
   # Lakebase only:
   python setup_workshop.py --lakebase-only
+
+  # Unity Catalog only (catalog, bronze schema, default schema, filestore volume):
+  python setup_workshop.py --uc-only
 
   # Users only:
   python setup_workshop.py --users-only --users-file participants.txt
@@ -199,9 +300,9 @@ examples:
     )
     parser.add_argument(
         "--lakebase-name",
-        default="Disaster Recovery Tracker",
+        default="disaster-recovery-tracker",
         metavar="NAME",
-        help="Lakebase display name (default: Disaster Recovery Tracker)",
+        help="Lakebase display name (default: disaster-recovery-tracker)",
     )
     parser.add_argument(
         "--pg-version",
@@ -211,23 +312,35 @@ examples:
         metavar="VER",
         help="PostgreSQL major version (16 or 17, default: 17)",
     )
+    parser.add_argument(
+        "--catalog",
+        default=DEFAULT_CATALOG,
+        metavar="NAME",
+        help=f"Unity Catalog name (default: {DEFAULT_CATALOG})",
+    )
 
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--lakebase-only",
         action="store_true",
-        help="Only create the Lakebase project, skip user provisioning",
+        help="Only create the Lakebase project",
     )
     mode.add_argument(
         "--users-only",
         action="store_true",
-        help="Only provision users, skip Lakebase creation",
+        help="Only provision users",
+    )
+    mode.add_argument(
+        "--uc-only",
+        action="store_true",
+        help="Only create the Unity Catalog catalog/schemas/volume",
     )
 
     args = parser.parse_args()
 
-    if not args.lakebase_only and not args.users_file:
-        parser.error("--users-file is required unless --lakebase-only is specified")
+    needs_users_file = not (args.lakebase_only or args.uc_only)
+    if needs_users_file and not args.users_file:
+        parser.error("--users-file is required unless --lakebase-only or --uc-only is specified")
 
     profiles = get_profiles()
     profile = select_profile(profiles, args.profile)
@@ -239,8 +352,11 @@ examples:
         provision_users(w, args.users_file)
     elif args.lakebase_only:
         create_lakebase(w, args.lakebase_name, args.pg_version)
+    elif args.uc_only:
+        create_uc_resources(w, args.catalog)
     else:
         create_lakebase(w, args.lakebase_name, args.pg_version)
+        create_uc_resources(w, args.catalog)
         provision_users(w, args.users_file)
 
     print("\nWorkshop setup complete.")

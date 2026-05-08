@@ -42,7 +42,7 @@ Skim these items so deployment choices make sense:
 2. Select Custom App ![select app](./images/customApp.jpeg)
 
 
-3. Name Your Application fema-claims-tracker-<your name> then click Next ![select app](./images/customApp.jpeg)
+3. Name Your Application fema-claims-tracker-<your name> then click Next
 
 4. Configure Git Source. Add the git url of the project as the source for the app. Click Create App ![select app](./images/gitApp.jpeg)
 

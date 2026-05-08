@@ -4,7 +4,7 @@
 
 ## Part A — Navigate to the New Claim Form
 
-1.  Open the Disaster Recovery Tracker application in your web browser.
+1.  Open the Disaster Recovery Tracker application in your web browser. Here is a link to the application on the **Overview** section of the application.
 2.  Locate and click on the **"Submit Claim"** button/link, found in the top left corner.
 
 ## Part B — Fill Out Initial Claim Details
