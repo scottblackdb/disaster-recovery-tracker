@@ -10,10 +10,12 @@ import configparser
 import re
 import sys
 import time
+from datetime import timedelta
 from pathlib import Path
 
 try:
     from databricks.sdk import WorkspaceClient
+    from databricks.sdk.common.lro import LroOptions
     from databricks.sdk.errors import AlreadyExists, ResourceAlreadyExists
     from databricks.sdk.service import iam, postgres
 except ImportError:
@@ -105,9 +107,9 @@ def create_lakebase(w: WorkspaceClient, display_name: str, pg_version: int = 17)
 
     print("  Waiting for Lakebase to become ready", end="", flush=True)
     try:
-        result = op.result(timeout=600)
+        result = op.wait(LroOptions(timeout=timedelta(seconds=600)))
         print()
-        name = result.name if result else project_id
+        name = result.spec.display_name if result and result.spec else project_id
         print(f"  Ready: {name}")
     except Exception as e:
         print(f"\n  Operation ended: {e}")
@@ -197,9 +199,9 @@ examples:
     )
     parser.add_argument(
         "--lakebase-name",
-        default="workshop-lakebase",
+        default="Disaster Recovery Tracker",
         metavar="NAME",
-        help="Lakebase display name (default: workshop-lakebase)",
+        help="Lakebase display name (default: Disaster Recovery Tracker)",
     )
     parser.add_argument(
         "--pg-version",
