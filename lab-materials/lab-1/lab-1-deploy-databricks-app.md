@@ -55,6 +55,34 @@ Skim these items so deployment choices make sense:
 
 7. It will take 2 to 3 minutes for the initial deployment. Future deployments will be much faster. After the deployment is complete click on the URL for the app and verify you are able to log in to the app.
 
+---
+
+## Part D — Resolve "permission denied for schema public"
+
+On its first run, the app tries to create its tables (`fema_categories`, `claims`, `documents`, `claim_status_history`) in the Lakebase `public` schema. PostgreSQL 15+ tightened the default permissions on `public`, so on a brand‑new Lakebase the app's role cannot create objects there yet. You will see this in the app logs (and the app UI may show an error on first load):
+
+```
+psycopg.errors.InsufficientPrivilege: permission denied for schema public
+LINE 1: CREATE TABLE IF NOT EXISTS fema_categories (
+```
+
+Grant your app's Postgres role permission to use and create objects in `public`, then redeploy.
+
+1. In the Lakebase view, open the **`disaster-recovery-tracker`** project.
+2. Click the **New Query** button (or open the **SQL Editor** for the Lakebase). This connects you as the Lakebase owner role (`databricks_superuser`), which has permission to grant on `public`.
+3. Confirm you are connected to the **`databricks_postgres`** database (the default Lakebase database). Then run:
+
+   ```sql
+   GRANT USAGE, CREATE ON SCHEMA public TO PUBLIC;
+   ```
+
+   This grants every existing and future role in this Lakebase — including your app's service principal — the ability to use the `public` schema and create tables in it. (For a tighter grant, replace `PUBLIC` with the quoted service-principal role name of your app.)
+
+4. Return to your app's page in Databricks and click **Deploy** again (branch `main`). Once the new deployment is **Running**, refresh the app URL — the bootstrap script will now succeed and you should land on the app's home page.
+
+> If the error reappears after the redeploy, double-check that the `disaster-recovery-lakebase` resource on your app points at the `disaster-recovery-tracker` project / `production` branch / `primary` endpoint and that the resource has **Read And Write** access.
+
+---
 
 ## Congratulations On Creating Your Databricks App!
 
