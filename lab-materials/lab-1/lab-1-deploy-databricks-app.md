@@ -42,14 +42,14 @@ Skim these items so deployment choices make sense:
 2. Select Custom App ![select app](./images/customApp.jpeg)
 
 
-3. Name Your Application fema-claims-tracker-<your name> then click Next
+3. Name Your Application fema-claims-tracker-<your name> then click Next. The max. length for an application is 30 characters so you may have to shorten your name.
 
 4. Configure Git Source. Add the git url of the project as the source for the app. Click Create App ![select app](./images/gitApp.jpeg)
 
-5. Configure App Resources. Grant access to Lakebase, the production branch, Sql Warehouse and a Unity Catalog Volume. Do not change any other settings. ![select app](./images/finishApp.jpeg)
+5. Configure App Resources. Grant access to Lakebase, the production branch, Sql Warehouse (any warehouse will work) and a Unity Catalog Volume. Do not change any other settings. ![select app](./images/finishApp.jpeg)
    - **Lakebase** serves as the OLTP database and system of record for claims.
    - **SQL Warehouse** serves as the data warehouse for analytics and heavy reporting.
-   - **UC Volume** serves as a filestore to hold non-tabular data such as images and files.
+   - **UC Volume** serves as a filestore to hold non-tabular data such as images and files. Ensure the permissions are set to **Read And Write**.
 
 6. Click the Deploy button. Use **`main`** as the branch and then click Deploy ![select app](./images/deployApp.jpeg)
 

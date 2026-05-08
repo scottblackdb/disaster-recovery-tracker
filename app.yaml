@@ -12,7 +12,7 @@ env:
   - name: REFINE_LLM_ENDPOINT
     value: "databricks-gpt-oss-120b"
   - name: ENDPOINT_NAME
-    value: "projects/disaster-recovery/branches/production/endpoints/primary"
+    value: "projects/disaster-recovery-tracker/branches/production/endpoints/primary"
   - name: WAREHOUSE_ID
     valueFrom: sql-warehouse
   - name: VOLUME_PATH
@@ -21,6 +21,6 @@ env:
 resources:
   - name: disaster-recovery-lakebase
     type: postgres
-    project: disaster-recovery
+    project: disaster-recovery-tracker
     branch: production
     endpoint: primary

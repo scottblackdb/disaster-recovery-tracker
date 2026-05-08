@@ -12,7 +12,7 @@ VOLUME_PATH = os.getenv("VOLUME_PATH", "/Volumes/fema/default/filestore")
 # postgres resource is declared in app.yaml.
 ENDPOINT_NAME = os.getenv(
     "ENDPOINT_NAME",
-    "projects/disaster-recovery/branches/production/endpoints/primary",
+    "projects/disaster-recovery-tracker/branches/production/endpoints/primary",
 )
 PGUSER = os.getenv("PGUSER", "")
 PGHOST = os.getenv("PGHOST", "")
