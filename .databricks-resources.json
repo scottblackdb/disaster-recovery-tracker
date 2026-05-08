@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "resources": [
+    {
+      "type": "genie_space",
+      "name": "FEMA Disaster Claims Management",
+      "id": "01f144bc1fb31afa9707e9e6186ade76",
+      "created_at": "2026-05-06T21:50:49.941558+00:00",
+      "updated_at": "2026-05-06T21:50:49.941558+00:00"
+    },
+    {
+      "type": "dashboard",
+      "name": "FEMA Claims Overview",
+      "id": "01f14996a08a1db6822585e0cc30646d",
+      "created_at": "2026-05-06T21:57:51.926280+00:00",
+      "updated_at": "2026-05-06T21:57:51.926280+00:00",
+      "url": "https://adb-3011697725699826.6.azuredatabricks.net/sql/dashboardsv3/01f14996a08a1db6822585e0cc30646d"
+    }
+  ]
+}
