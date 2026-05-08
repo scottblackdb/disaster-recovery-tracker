@@ -18,7 +18,7 @@ try:
     from databricks.sdk.common.lro import LroOptions
     from databricks.sdk.errors import AlreadyExists, ResourceAlreadyExists
     from databricks.sdk.service import iam, postgres
-    from databricks.sdk.service.catalog import VolumeType
+    from databricks.sdk.service.catalog import PermissionsChange, Privilege, VolumeType
 except ImportError:
     print("Error: databricks-sdk is required.  pip install databricks-sdk")
     sys.exit(1)
@@ -28,8 +28,12 @@ except ImportError:
 # /Volumes/fema/default/filestore. Keep these defaults in sync with that.
 DEFAULT_CATALOG = "fema"
 DEFAULT_BRONZE_SCHEMA = "bronze"
+DEFAULT_SILVER_SCHEMA = "silver"
 DEFAULT_VOLUME_SCHEMA = "default"
 DEFAULT_VOLUME_NAME = "filestore"
+
+# Group containing every workspace user (auto-managed at the account level).
+ALL_USERS_PRINCIPAL = "account users"
 
 
 # ---------------------------------------------------------------------------
@@ -156,10 +160,12 @@ def create_uc_resources(
     w: WorkspaceClient,
     catalog_name: str,
     bronze_schema: str = DEFAULT_BRONZE_SCHEMA,
+    silver_schema: str = DEFAULT_SILVER_SCHEMA,
     volume_schema: str = DEFAULT_VOLUME_SCHEMA,
     volume_name: str = DEFAULT_VOLUME_NAME,
 ) -> None:
-    """Create the catalog, bronze + volume schemas, and managed volume the backend uses."""
+    """Create the catalog, bronze/silver/volume schemas, the managed volume the
+    backend uses, and grant read access on the catalog to all workspace users."""
     print(f"\nCreating Unity Catalog resources (catalog: {catalog_name})...")
 
     # Catalog. Workspaces without a metastore storage root require an explicit
@@ -178,9 +184,9 @@ def create_uc_resources(
             print(f"  [!] catalog '{catalog_name}' — {e}")
             sys.exit(1)
 
-    # Schemas (bronze + the schema that holds the volume; UC auto-creates 'default'
-    # but we attempt it idempotently in case the catalog was created without one)
-    for schema in {bronze_schema, volume_schema}:
+    # Schemas (bronze + silver + the schema that holds the volume; UC auto-creates
+    # 'default' but we attempt it idempotently in case the catalog was created without one)
+    for schema in {bronze_schema, silver_schema, volume_schema}:
         try:
             w.schemas.create(name=schema, catalog_name=catalog_name)
             print(f"  [+] schema '{catalog_name}.{schema}'")
@@ -192,6 +198,24 @@ def create_uc_resources(
             else:
                 print(f"  [!] schema '{catalog_name}.{schema}' — {e}")
                 sys.exit(1)
+
+    # Grant USE CATALOG / USE SCHEMA / SELECT on the catalog to every workspace
+    # user so workshop participants can browse and query fema.bronze.*, fema.silver.*.
+    try:
+        w.grants.update(
+            securable_type="catalog",
+            full_name=catalog_name,
+            changes=[
+                PermissionsChange(
+                    principal=ALL_USERS_PRINCIPAL,
+                    add=[Privilege.USE_CATALOG, Privilege.USE_SCHEMA, Privilege.SELECT],
+                )
+            ],
+        )
+        print(f"  [+] grants on '{catalog_name}' to '{ALL_USERS_PRINCIPAL}': USE CATALOG, USE SCHEMA, SELECT")
+    except Exception as e:
+        print(f"  [!] grant on '{catalog_name}' — {e}")
+        sys.exit(1)
 
     # Managed volume referenced by backend VOLUME_PATH
     full_volume = f"/Volumes/{catalog_name}/{volume_schema}/{volume_name}"
