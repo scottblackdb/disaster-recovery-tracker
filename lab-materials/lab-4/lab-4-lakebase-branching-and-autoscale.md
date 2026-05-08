@@ -16,7 +16,7 @@ Lakebase branches are **copy-on-write** clones of a Postgres database. Creating 
 
 ## Before you start
 
-- You completed **Lab 1**, so the Databricks App `fema-claims-tracker-<your name>` exist.
+- You completed **Lab 1**, so the Databricks App `fema-claims-tracker-<your name>` exists.
 - You can **edit your own app's resources** (you deployed it, so you should).
 - You will **not** change any production / main-branch data in this lab.
 
@@ -24,8 +24,9 @@ Lakebase branches are **copy-on-write** clones of a Postgres database. Creating 
 
 ## Part A — Open the Lakebase project
 
-1. In the Databricks workspace top right view switcher nav, click **Lakebase Postgress**.
-2. Click the **`Diaster Recovery Tracker`** project.
+1. In the Databricks workspace top right view switcher nav, click **Lakebase Postgres**.
+2. Click the **`Disaster Recovery Tracker`** project.
+3. Confirm the project status shows **Running** before continuing.
 4. On the left vertical menu select **Branches**. You should see a single existing branch named **`production`** — that is currently serving the workshop's production data and the Lab 2 dashboard.
 ![branches](./images/branches.jpg)
 ---
@@ -35,7 +36,7 @@ Lakebase branches are **copy-on-write** clones of a Postgres database. Creating 
 1. From the **Branches** tab, click **New Branch** button in the top right corner.
 2. **Name:** `disaster-recovery-tracker-<your-name>` (for example `fema-disaster-recovery-johndoe`). Lowercase letters, numbers, and hyphens only.
 3. **Parent branch:** **`production`**.
-4. Ensure the the checkbox to delete after 1 day remains checked.
+4. Ensure the checkbox to delete after 1 day remains checked.
 5. **Branch from:** **Latest** (point-in-time = now). This snapshots all four tables (`claims`, `fema_categories`, `documents`, `claim_status_history`) at the current moment.
 6. Click **Create**.
 ![createBranch](./images/createBranch.jpg)
@@ -51,7 +52,7 @@ The branch typically becomes available in just a few seconds regardless of datab
 
 Lakebase Postgres autoscales **compute** independently of storage — that's how branches stay cheap and how you only pay for the work you actually do.
 
-> Only change settings on **your own** `disaster-recovery-tracker-<your-name>` branch in this part. **Do not** change `productions`'s settings — that branch is shared with the rest of the class.
+> Only change settings on **your own** `disaster-recovery-tracker-<your-name>` branch in this part. **Do not** change `production`'s settings — that branch is shared with the rest of the class.
 
 ### Tour the settings
 
@@ -79,25 +80,25 @@ This is the **one setting** you should adjust in this lab — and only on your o
    - Confirm the **inactivity timeout** (e.g. 5 minutes) — the default is fine.
 4. Click **Save** / **Apply** to confirm the change.
 
-> Make sure the URL / breadcrumb still says you are on `dev-<your-name>` before you click Save. If it shows `main`, back out and re-navigate via **Branches → `dev-<your-name>` → Compute**.
+> Make sure the URL / breadcrumb still says you are on `disaster-recovery-tracker-<your-name>` before you click Save. If it shows `production`, back out and re-navigate via **Branches → `disaster-recovery-tracker-<your-name>` → Compute**.
 
 ### What to take away
 
 - The instance you've been using all workshop has been **silently scaling itself** the whole time. You never told it how big to be — Lakebase figured it out.
 - With scale-to-zero on, when you walk away from your branch tonight it stops billing you for compute entirely. The first query tomorrow auto-resumes it within a couple of seconds — no manual restart required.
-- These autoscaling controls exist **per branch**, so your sandbox can scale independently from production: aggressive scale-to-zero on your dev branch, more conservative settings on `main`.
+- These autoscaling controls exist **per branch**, so your sandbox can scale independently from production: aggressive scale-to-zero on your dev branch, more conservative settings on `production`.
 
 ---
 
 ## Part D — Point your Databricks App at your new branch
 
-Now we'll switch your `fema-claims-tracker-<your name>` app to read from and write to **your** branch instead of `main`. Production data stays exactly as it is for everyone else — your app will just see the snapshot you took in Part B and any changes **you** make from here on.
+Now we'll switch your `fema-claims-tracker-<your name>` app to read from and write to **your** branch instead of `production`. Production data stays exactly as it is for everyone else — your app will just see the snapshot you took in Part B and any changes **you** make from here on.
 
 1. From the top right view switcher, click **Databricks Apps** and open your **`fema-claims-tracker-<your name>`** app.
-2. From the vertical left menu click the **Settings**).
+2. From the vertical left menu click **Settings**.
 3. Go to the **Resources** section.
-4. Find the existing **Lakebase** resource that's wired up to the `Disaster Recovery Tacker` instance — it's the one named `disaster-recovery-lakebase` in `app.yaml`.
-5. Change the **branch** dropdown from **`main`** to your new branch, **`disaster-recovery-tracker-<your-name>`**.
+4. Find the existing **Lakebase** resource that's wired up to the `Disaster Recovery Tracker` instance — it's the one named `disaster-recovery-lakebase` in `app.yaml`.
+5. Change the **branch** dropdown from **`production`** to your new branch, **`disaster-recovery-tracker-<your-name>`**.
 ![changeBranch](./images/changeBranch.jpg)
 6. Leave every other field (database, role, permissions) exactly as it was.
 7. Click **Save**.
@@ -107,13 +108,12 @@ Now we'll switch your `fema-claims-tracker-<your name>` app to read from and wri
 ### Verify you're on your branch
 
 1. In the running app, **submit a brand-new claim** (use the steps from **Lab 1.1**) — for example, *"Hurricane TestBranch — \<your name\>"*.
-2. Open the **AI/BI dashboard from Lab 2** in another tab. The dashboard reads from `fema_claims_workshop_catalog.public.*`, which is still synced from the **`main`** branch.
+2. Open the **AI/BI dashboard from Lab 2** in another tab. The dashboard reads from `fema.bronze.*`, which is still synced from the **`production`** branch.
 3. Refresh the dashboard.
 4. **You should NOT see your test claim on the dashboard.** That's the proof that your app is now writing to your branch, completely isolated from production.
-5. To see your branch's data, query it directly from the SQL editor:
+5. To see your branch's data, query it directly from the SQL editor. Ensure you are on the Lakebase Postgres view, Disaster Recovery project and your branch, then run:
 
 ```sql
--- Connect to the dev-<your-name> branch's endpoint and run:
 SELECT incident_name, applicant_name, submitted_at
 FROM public.claims
 ORDER BY submitted_at DESC
@@ -129,7 +129,7 @@ When you're done experimenting, you can either:
 - Leave the branch — it's autoscaled and (if scale-to-zero is on) costs almost nothing while idle.
 - Delete it from the **Branches** tab; the parent branch is unaffected.
 
-If you delete the branch, switch your app's Lakebase resource back to **`main`** before re-deploying, otherwise the app will fail to start.
+If you delete the branch, switch your app's Lakebase resource back to **`production`** before re-deploying, otherwise the app will fail to start.
 
 ## Congratulations — you have a personal, isolated, autoscaled Postgres branch wired up to your app!
 
@@ -140,4 +140,4 @@ You've now seen one of the most important Lakebase patterns: **branch the databa
 - **"Branch is provisioning" forever:** Refresh the page; if it's still stuck after a few minutes, the parent instance may be paused — open it once to wake it and try again.
 - **App won't deploy after the resource change:** The app's Postgres role needs `CONNECT` on the new branch. Open the branch's **Permissions** tab and confirm the app's service principal is granted access.
 - **You see production data in your app even after switching branches:** You probably forgot to **Deploy** after editing the resource. Resource changes are applied at deploy time.
-- **You enabled scale-to-zero on the wrong branch:** If the breadcrumb shows `main`, immediately revert the change (toggle scale-to-zero back to its previous value and Save), then re-navigate to **Branches → `dev-<your-name>` → Compute** before adjusting settings.
+- **You enabled scale-to-zero on the wrong branch:** If the breadcrumb shows `production`, immediately revert the change (toggle scale-to-zero back to its previous value and Save), then re-navigate to **Branches → `disaster-recovery-tracker-<your-name>` → Compute** before adjusting settings.

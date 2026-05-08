@@ -1,12 +1,12 @@
 # Lab 2 (Instructor Only): Sync Lakebase to the Lakehouse
 
-> **Audience:** Instructor only for Part A. Students should **not** run Part A. Once the instructor has completed Part A then complete Part B. The output of this lab — synced tables in Unity Catalog.
+> **Audience:** Instructor only for Part A. Students should **not** run Part A. Once the instructor has completed Part A then complete Part B. The output of this lab is synced tables in Unity Catalog.
 
 **Goal:** Create **Lakebase synced tables** that continuously replicate the Disaster Recovery Tracker's OLTP data from **Lakebase (Postgres)** into the **Lakehouse (Unity Catalog Delta tables)** so the data is available for analytics and the AI/BI dashboard.
 
 **Source (Lakebase / Postgres):** `Disaster Recovery Tracker` Lakebase Project, `databricks_postgres` database, `public` schema.
 
-**Destination (Lakehouse / Unity Catalog):** `fema_claims_workshop_catalog.public.*`
+**Destination (Lakehouse / Unity Catalog):** `fema.bronze.*`
 
 ---
 
@@ -26,13 +26,13 @@
 4. Click on the **`Sync`** tab.
 5. Click on the **`Start Sync`** button.
 ![select app](./images/startSync.jpg)
-7. Fill out the sync form.
+6. Fill out the sync form.
 - Database: databricks_postgres
 - To Catalog: fema
-- Top Schema: public
-- Bottom Schema: Bronze
+- Top Schema: public *(source schema in Lakebase)*
+- Bottom Schema: Bronze *(destination schema in the Lakehouse catalog)*
 ![select app](./images/selectSyncOptions.jpg)
-8. Click the `Start` button
+7. Click the `Start` button
 ![select app](./images/syncStarted.jpg)
 
 ---
@@ -47,12 +47,12 @@
 SELECT COUNT(*) FROM fema.bronze.lb_claims_history;
 SELECT COUNT(*) FROM fema.bronze.lb_fema_categories_history;
 SELECT COUNT(*) FROM fema.bronze.lb_documents_history;
-SELECT COUNT(*) FROM fema.bronze.claim_status_history_history;
+SELECT COUNT(*) FROM fema.bronze.lb_claim_status_history_history;
 ```
 
 4. Submit a new claim through the app, wait ~30 seconds, then re-run the `claims` count to confirm new rows propagate.
 
-Notice the table names have a `_history` prefix added to them and are SCD TYPE 2, meaning they show the full history of changes to the table. We will create a current view of the tables in the silver schema.
+Notice the table names have a `_history` suffix added to them and are SCD TYPE 2, meaning they show the full history of changes to each record.
 
 ---
 
@@ -63,5 +63,5 @@ The students can now import the AI/BI dashboard and immediately see live data fl
 ## Need help?
 
 - **Synced table stuck in "Provisioning":** Confirm the Lakebase project is running and that the source table has a primary key.
-- **`TABLE_OR_VIEW_NOT_FOUND` from the dashboard:** The destination catalog/schema/table names must match `fema.bronze.lb_<source_name>_histroy` exactly.
+- **`TABLE_OR_VIEW_NOT_FOUND` from the dashboard:** The destination catalog/schema/table names must match `fema.bronze.lb_<source_name>_history` exactly.
 - **No new rows showing up:** Check the synced table's **Sync status** tab for the last successful sync timestamp and any error messages.

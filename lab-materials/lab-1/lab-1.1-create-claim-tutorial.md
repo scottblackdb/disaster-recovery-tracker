@@ -19,7 +19,7 @@ On the "Submit New Claim" form, you will find several fields to provide details 
     *   *Example: "John Doe"*
 4.  **Estimated Cost ($):** Leave this field blank for now. The AI may populate it automatically based on the document you upload in Part C.
 
-5.  **Submitted By:** This field will be pre-fill with your email address used to log into the app.
+5.  **Submitted By:** This field will be pre-filled with your email address used to log into the app.
     
 6.  **FEMA Category (optional - AI can suggest):** Leave this set to **"Let AI Suggest"**. We'll let the Databricks Foundational Model determine the category based on the image analysis.
 
@@ -27,8 +27,8 @@ On the "Submit New Claim" form, you will find several fields to provide details 
 
 This section demonstrates the power of Databricks Foundational Models in accelerating the claims process by analyzing documents.
 
-1.  **Document Upload:** In the section titled "Describe damage from a photo (optional)" (which also handles documents), click **"Choose image file"** (it functions for documents too) or use the **"Or image URL"** field. For this lab, you can select one of the PDF estimate files from the `/lab-materials/damage_assets/` directories.
-    *   *Example:* You can choose `tree_impact_restoration_estimate.pdf` from `/lab-materials/damage_assets/example_2/`.
+1.  **Document Upload:** In the section titled "Describe damage from a photo (optional)" (which also handles documents), click **"Choose image file"** (it functions for documents too) or use the **"Or image URL"** field. For this lab, use one of the PDF estimate files included in the workshop materials on your laptop. They can be found in the `lab-materials/damage_assets/` folder of the repository you cloned.
+    *   *Example:* You can choose `tree_impact_restoration_estimate.pdf` from `lab-materials/damage_assets/example_2/`.
 2.  **Initiate AI Analysis:** Click the **"Fill description from image"** button (this button processes documents as well).
     *   **Behind the Scenes (Databricks Foundational Models):** The application sends this PDF to the backend. The backend uses Databricks Foundational Models, specifically the `ai_parse_document` function, to read the PDF. This function intelligently extracts key information such as incident details, estimated costs, and damage descriptions. It then uses this extracted data to automatically populate the "Description of Damage / Work Needed" field and attempts to classify the damage to suggest a **FEMA Category**.
 3.  **Review AI-Generated Description and Cost:** Observe that the **"Description of Damage / Work Needed"** text area is automatically populated with the AI's analysis of the document. Also, note that the **"Estimated Cost ($)"** field, which you left blank, might now be populated by the AI if it successfully extracted a cost from the PDF.
