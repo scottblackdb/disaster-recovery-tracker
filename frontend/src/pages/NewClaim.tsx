@@ -2,13 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Card, CardContent, TextField, MenuItem, Button,
-  Grid, Alert, CircularProgress, Stack, Dialog, DialogTitle,
-  DialogContent, DialogActions,
+  Grid, Alert, CircularProgress, Stack,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
-import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined';
-import { createClaim, fetchCategories, getApiErrorMessage, previewDamageDescription, refineDescription } from '../services/api';
+import { createClaim, fetchCategories, getApiErrorMessage, previewDamageDescription } from '../services/api';
 import { useCurrentUserEmail } from '../hooks/useCurrentUserEmail';
 import { FemaCategory } from '../types';
 
@@ -24,12 +22,6 @@ export default function NewClaim() {
   const [selectedImageName, setSelectedImageName] = useState('');
   const [previewStoragePath, setPreviewStoragePath] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Refine description state
-  const [refining, setRefining] = useState(false);
-  const [refineDialog, setRefineDialog] = useState(false);
-  const [refinedText, setRefinedText] = useState('');
-  const [refineError, setRefineError] = useState('');
 
   const [form, setForm] = useState({
     incident_name: '',
@@ -84,32 +76,6 @@ export default function NewClaim() {
     } finally {
       setExtractingDamage(false);
     }
-  };
-
-  const handleRefineDescription = async () => {
-    if (!form.description.trim()) return;
-    setRefining(true);
-    setRefineError('');
-    try {
-      const { refined } = await refineDescription(form.description);
-      setRefinedText(refined);
-      setRefineDialog(true);
-    } catch (e: unknown) {
-      setRefineError(getApiErrorMessage(e));
-    } finally {
-      setRefining(false);
-    }
-  };
-
-  const handleAcceptRefined = () => {
-    setForm((prev) => ({ ...prev, description: refinedText }));
-    setRefineDialog(false);
-    setRefinedText('');
-  };
-
-  const handleRejectRefined = () => {
-    setRefineDialog(false);
-    setRefinedText('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -284,25 +250,6 @@ export default function NewClaim() {
                   onChange={handleChange}
                   placeholder="Describe the damage, location, and scope of work..."
                 />
-                <Box display="flex" alignItems="center" gap={1} mt={1}>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={refining ? <CircularProgress size={16} color="inherit" /> : <AutoFixHighIcon />}
-                    onClick={handleRefineDescription}
-                    disabled={refining || !form.description.trim()}
-                  >
-                    {refining ? 'Refining...' : 'Refine with AI'}
-                  </Button>
-                  <Typography variant="caption" color="text.secondary">
-                    AI will clean up grammar and formatting for FEMA compliance
-                  </Typography>
-                </Box>
-                {refineError && (
-                  <Alert severity="error" sx={{ mt: 1 }} onClose={() => setRefineError('')}>
-                    {refineError}
-                  </Alert>
-                )}
               </Grid>
               <Grid size={12}>
                 <TextField
@@ -330,31 +277,6 @@ export default function NewClaim() {
           </form>
         </CardContent>
       </Card>
-
-      {/* Refine Description Dialog */}
-      <Dialog open={refineDialog} onClose={handleRejectRefined} maxWidth="md" fullWidth>
-        <DialogTitle>Review Refined Description</DialogTitle>
-        <DialogContent>
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-            Your original
-          </Typography>
-          <Box sx={{ p: 2, mb: 2, borderRadius: 1, bgcolor: 'action.hover' }}>
-            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{form.description}</Typography>
-          </Box>
-          <Typography variant="subtitle2" color="primary" gutterBottom>
-            AI-refined version
-          </Typography>
-          <Box sx={{ p: 2, borderRadius: 1, border: 2, borderColor: 'primary.main', bgcolor: 'action.hover' }}>
-            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{refinedText}</Typography>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleRejectRefined}>Keep Original</Button>
-          <Button variant="contained" onClick={handleAcceptRefined}>
-            Use Refined Version
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 }

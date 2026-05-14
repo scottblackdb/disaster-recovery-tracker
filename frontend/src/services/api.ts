@@ -68,13 +68,6 @@ export async function previewDamageDescription(
   return data;
 }
 
-export async function refineDescription(description: string): Promise<{ original: string; refined: string }> {
-  const formData = new FormData();
-  formData.append('description', description);
-  const { data } = await api.post('/refine-description', formData);
-  return data;
-}
-
 export async function updateClaimStatus(
   claimId: number,
   status: string,
