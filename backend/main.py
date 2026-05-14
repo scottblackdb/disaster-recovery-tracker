@@ -77,6 +77,11 @@ _VOLUME_FILE_ABSENT_ERROR_MARKERS: frozenset[str] = frozenset(
     ("404", "not found", "does not exist", "resource_not_found")
 )
 
+# Recycle pooled DB connections (and fetch a new Lakebase credential on reconnect) before
+# credentials typically expire (~1h). ``OAuthConnection.connect`` calls
+# ``generate_database_credential`` on each new physical connection.
+_POOL_MAX_LIFETIME_SEC = 45 * 60
+
 
 def _volume_delete_error_is_absent(err: Exception) -> bool:
     err_l = str(err).lower()
@@ -133,6 +138,7 @@ def get_db_connection():
             kwargs={"row_factory": dict_row, "autocommit": False},
             min_size=1,
             max_size=10,
+            max_lifetime=_POOL_MAX_LIFETIME_SEC,
             open=True,
         )
     return _pool.connection()
