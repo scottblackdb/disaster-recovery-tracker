@@ -32,7 +32,8 @@ DEFAULT_SILVER_SCHEMA = "silver"
 DEFAULT_VOLUME_SCHEMA = "default"
 DEFAULT_VOLUME_NAME = "filestore"
 
-# Group containing every workspace user (auto-managed at the account level).
+# Built-in account group (Unity Catalog principal and Permissions API ``group_name``;
+# UI label: All account users).
 ALL_USERS_PRINCIPAL = "account users"
 
 
@@ -98,6 +99,32 @@ def _to_project_id(name: str) -> str:
     return slug[:63]
 
 
+def _grant_lakebase_project_manage_all_account_users(w: WorkspaceClient, project_id: str) -> None:
+    """Grant Lakebase project ACL ``CAN_MANAGE`` (Manage in UI) to All account users.
+
+    Uses the workspace Permissions API (``database-projects``), not Unity Catalog grants.
+    See https://docs.databricks.com/aws/en/oltp/projects/grant-permissions-programmatically
+    """
+    try:
+        w.permissions.update(
+            request_object_type="database-projects",
+            request_object_id=project_id,
+            access_control_list=[
+                iam.AccessControlRequest(
+                    group_name=ALL_USERS_PRINCIPAL,
+                    permission_level=iam.PermissionLevel.CAN_MANAGE,
+                )
+            ],
+        )
+        print(
+            f"  [+] Lakebase project '{project_id}': CAN_MANAGE for "
+            f"group '{ALL_USERS_PRINCIPAL}' (All account users)"
+        )
+    except Exception as e:
+        print(f"  [!] Lakebase project permissions on '{project_id}' — {e}")
+        sys.exit(1)
+
+
 def create_lakebase(w: WorkspaceClient, display_name: str, pg_version: int = 17) -> None:
     project_id = _to_project_id(display_name)
     print(f"\nCreating autoscaling Lakebase project '{display_name}' (id: {project_id}, pg{pg_version})...")
@@ -113,6 +140,7 @@ def create_lakebase(w: WorkspaceClient, display_name: str, pg_version: int = 17)
         op = w.postgres.create_project(project=project, project_id=project_id)
     except (AlreadyExists, ResourceAlreadyExists):
         print(f"  Lakebase project '{project_id}' already exists, skipping.")
+        _grant_lakebase_project_manage_all_account_users(w, project_id)
         return
     except Exception as e:
         print(f"  Error: {e}")
@@ -124,6 +152,7 @@ def create_lakebase(w: WorkspaceClient, display_name: str, pg_version: int = 17)
         print()
         name = result.spec.display_name if result and result.spec else project_id
         print(f"  Ready: {name}")
+        _grant_lakebase_project_manage_all_account_users(w, project_id)
     except Exception as e:
         print(f"\n  Operation ended: {e}")
 
@@ -165,7 +194,8 @@ def create_uc_resources(
     volume_name: str = DEFAULT_VOLUME_NAME,
 ) -> None:
     """Create the catalog, bronze/silver/volume schemas, the managed volume the
-    backend uses, and grant read access on the catalog to all workspace users."""
+    backend uses, grant read access on the catalog to all account users, and
+    grant MANAGE on the volume to all account users."""
     print(f"\nCreating Unity Catalog resources (catalog: {catalog_name})...")
 
     # Catalog. Workspaces without a metastore storage root require an explicit
@@ -235,6 +265,26 @@ def create_uc_resources(
         else:
             print(f"  [!] volume '{full_volume}' — {e}")
             sys.exit(1)
+
+    volume_securable_name = f"{catalog_name}.{volume_schema}.{volume_name}"
+    try:
+        w.grants.update(
+            securable_type="volume",
+            full_name=volume_securable_name,
+            changes=[
+                PermissionsChange(
+                    principal=ALL_USERS_PRINCIPAL,
+                    add=[Privilege.MANAGE],
+                )
+            ],
+        )
+        print(
+            f"  [+] volume grant on '{volume_securable_name}' to "
+            f"'{ALL_USERS_PRINCIPAL}': MANAGE"
+        )
+    except Exception as e:
+        print(f"  [!] volume grant on '{volume_securable_name}' — {e}")
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
