@@ -27,7 +27,7 @@ On the "Submit New Claim" form, you will find several fields to provide details 
 
 This section demonstrates the power of Databricks Foundational Models in accelerating the claims process by analyzing documents.
 
-1.  **Document Upload:** In the section titled "Describe damage from a photo (optional)" (which also handles documents), click **"Choose image file"** (it functions for documents too) or use the **"Or image URL"** field. For this lab, use one of the JPG and one PDF estimate files included in the workshop materials on your laptop. They can be found in the `lab-materials/damage_assets/` folder of the repository you cloned.
+1.  **Document Upload:** In the section titled "Describe damage from a photo (optional)" (which also handles documents), click **"Choose image file"** (it functions for documents too) or use the **"Or image URL"** field. For this lab, use one of the JPG and one PDF estimate files included in the workshop materials downloaded to your laptop. They can be found in the `lab-materials/damage_assets/` folder of the repository you cloned.
     *   *Example:* You can choose `tree_impact_restoration_estimate.pdf` from `lab-materials/damage_assets/example_2/` 
 
     * or here is the URL `https://github.com/scottblackdb/disaster-recovery-tracker/tree/main/lab-materials/damage_assets`

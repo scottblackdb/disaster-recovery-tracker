@@ -81,8 +81,10 @@ To keep this lab simple we will grant the SP the built-in **`databricks_superuse
 6. Click 3 dot icon to the right and then click **`Edit`**.
 7. Under **System roles**, select **`databricks_superuser`**.
 8. Click **`Save`**.
-9. Return to your application overview page and click **`Deploy`** button.
-10. Verify your application remains in a running state.
+9. Also grant your account the same role. Click the **`Add Role`** button and search for your email in the principal field.
+10. Check the **databricks superuser** box and then click **Save**.
+11. Return to your application overview page and click **`Deploy`** button.
+12. Verify your application remains in a running state.
 
 ---
 

@@ -1,6 +1,6 @@
 # Lab 2 (Instructor Only): Sync Lakebase to the Lakehouse
 
-> **Audience:** Instructor only for Part A. Students should **not** run Part A. Once the instructor has completed Part A then students complete Part B. The output of this lab is synced tables in Unity Catalog.
+> **Audience:** Instructor only for Parts A and C. Students should **not** run Part A and Part C. Once the instructor has completed Part A then students complete Part B only, students should not run Part C. The output of this lab is synced tables in Unity Catalog.
 
 **Goal:** Create **Lakebase synced tables** that continuously replicate the Disaster Recovery Tracker's OLTP data from **Lakebase (Postgres)** into the **Lakehouse (Unity Catalog Delta tables)** so the data is available for analytics and the AI/BI dashboard.
 
