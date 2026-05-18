@@ -2,9 +2,9 @@
 """Workshop setup script for the Disaster Recovery Tracker lab.
 
 Creates an autoscaling Lakebase (Postgres) project, Unity Catalog resources, and
-provisions workspace users. When AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and
-(optionally) AWS_SESSION_TOKEN are set, also provisions an S3 bucket (us-west-2),
-IAM role, storage credential, and external location for the FEMA catalog.
+provisions workspace users. By default also provisions an S3 bucket (us-west-2),
+IAM role, storage credential, and external location for the FEMA catalog (requires
+AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_SESSION_TOKEN).
 
 Requires: databricks-sdk, boto3  (pip install -r requirements.txt)
 """
@@ -19,6 +19,7 @@ import time
 from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
+from typing import TypedDict
 
 try:
     import boto3
@@ -65,6 +66,90 @@ UC_PLACEHOLDER_EXTERNAL_ID = "0000"
 # Built-in account group (Unity Catalog principal and Permissions API ``group_name``;
 # UI label: All account users).
 ALL_USERS_PRINCIPAL = "account users"
+
+# Seconds to wait after creating a new IAM role before updating its trust policy.
+IAM_ROLE_PROPAGATION_SECONDS = 10
+
+# Terminal states for SQL statement execution polling.
+_SQL_TERMINAL_STATES = frozenset({
+    StatementState.SUCCEEDED,
+    StatementState.FAILED,
+    StatementState.CANCELED,
+    StatementState.CLOSED,
+})
+
+
+class AwsUcStorage(TypedDict):
+    external_location_url: str
+    managed_location: str
+    storage_credential_name: str
+    external_location_name: str
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def _is_already_exists(exc: Exception) -> bool:
+    if isinstance(exc, (AlreadyExists, ResourceAlreadyExists)):
+        return True
+    msg = str(exc).lower()
+    return any(k in msg for k in ("already exists", "conflict", "409", "uniqueness"))
+
+
+def _create_idempotent(
+    create_fn: Callable[[], None],
+    *,
+    created_msg: str,
+    exists_msg: str,
+    error_label: str,
+) -> None:
+    """Run a create call; treat 'already exists' as success, exit on other errors."""
+    try:
+        create_fn()
+        print(f"  [+] {created_msg}")
+    except (AlreadyExists, ResourceAlreadyExists):
+        print(f"  [~] {exists_msg}")
+    except Exception as e:
+        if _is_already_exists(e):
+            print(f"  [~] {exists_msg}")
+        else:
+            print(f"  [!] {error_label} — {e}")
+            sys.exit(1)
+
+
+def _grant_privileges(
+    w: WorkspaceClient,
+    *,
+    securable_type: str,
+    full_name: str,
+    privileges: list[Privilege],
+    description: str,
+) -> None:
+    try:
+        w.grants.update(
+            securable_type=securable_type,
+            full_name=full_name,
+            changes=[
+                PermissionsChange(
+                    principal=ALL_USERS_PRINCIPAL,
+                    add=privileges,
+                )
+            ],
+        )
+        privs = ", ".join(p.value for p in privileges)
+        print(f"  [+] grants on {description} '{full_name}' to '{ALL_USERS_PRINCIPAL}': {privs}")
+    except Exception as e:
+        print(f"  [!] grant on {description} '{full_name}' — {e}")
+        sys.exit(1)
+
+
+def _normalize_storage_url(url: str) -> str:
+    return url.rstrip("/") + "/"
+
+
+def _client_error_code(exc: ClientError) -> str:
+    return exc.response.get("Error", {}).get("Code", "")
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +262,14 @@ def _grant_lakebase_project_manage_all_account_users(w: WorkspaceClient, project
         sys.exit(1)
 
 
+def _lakebase_on_already_exists(
+    w: WorkspaceClient, project_id: str, *, skip_if_exists: bool
+) -> None:
+    print(f"  Lakebase project '{project_id}' already exists, skipping.")
+    if not skip_if_exists:
+        _grant_lakebase_project_manage_all_account_users(w, project_id)
+
+
 def create_lakebase(
     w: WorkspaceClient,
     display_name: str,
@@ -203,15 +296,11 @@ def create_lakebase(
     try:
         op = w.postgres.create_project(project=project, project_id=project_id)
     except (AlreadyExists, ResourceAlreadyExists):
-        print(f"  Lakebase project '{project_id}' already exists, skipping.")
-        if not skip_if_exists:
-            _grant_lakebase_project_manage_all_account_users(w, project_id)
+        _lakebase_on_already_exists(w, project_id, skip_if_exists=skip_if_exists)
         return
     except Exception as e:
         if _is_already_exists(e):
-            print(f"  Lakebase project '{project_id}' already exists, skipping.")
-            if not skip_if_exists:
-                _grant_lakebase_project_manage_all_account_users(w, project_id)
+            _lakebase_on_already_exists(w, project_id, skip_if_exists=skip_if_exists)
             return
         print(f"  Error: {e}")
         sys.exit(1)
@@ -231,34 +320,6 @@ def create_lakebase(
 # ---------------------------------------------------------------------------
 # Unity Catalog (catalog, schemas, volume referenced by the backend)
 # ---------------------------------------------------------------------------
-
-def _is_already_exists(exc: Exception) -> bool:
-    if isinstance(exc, (AlreadyExists, ResourceAlreadyExists)):
-        return True
-    msg = str(exc).lower()
-    return any(k in msg for k in ("already exists", "conflict", "409", "uniqueness"))
-
-
-def _create_idempotent(
-    create_fn: Callable[[], None],
-    *,
-    created_msg: str,
-    exists_msg: str,
-    error_label: str,
-) -> None:
-    """Run a create call; treat 'already exists' as success, exit on other errors."""
-    try:
-        create_fn()
-        print(f"  [+] {created_msg}")
-    except (AlreadyExists, ResourceAlreadyExists):
-        print(f"  [~] {exists_msg}")
-    except Exception as e:
-        if _is_already_exists(e):
-            print(f"  [~] {exists_msg}")
-        else:
-            print(f"  [!] {error_label} — {e}")
-            sys.exit(1)
-
 
 def _sql_identifier(name: str, *, label: str) -> str:
     """Validate a Unity Catalog identifier for safe use in SQL."""
@@ -287,12 +348,7 @@ def _execute_sql_statement(w: WorkspaceClient, warehouse_id: str, statement: str
         on_wait_timeout=ExecuteStatementRequestOnWaitTimeout.CONTINUE,
     )
     deadline = time.time() + 120
-    while resp.status and resp.status.state not in (
-        StatementState.SUCCEEDED,
-        StatementState.FAILED,
-        StatementState.CANCELED,
-        StatementState.CLOSED,
-    ):
+    while resp.status and resp.status.state not in _SQL_TERMINAL_STATES:
         if time.time() >= deadline:
             break
         time.sleep(2)
@@ -359,7 +415,7 @@ def _aws_session_from_env() -> "boto3.Session":
 
 def _catalog_managed_location(external_location_url: str, catalog_name: str) -> str:
     """Managed location for a catalog; must be under the external location prefix."""
-    return f"{external_location_url.rstrip('/')}/{catalog_name}/"
+    return _normalize_storage_url(f"{external_location_url.rstrip('/')}/{catalog_name}")
 
 
 def _aws_uc_resource_names(catalog_name: str, aws_account_id: str) -> dict[str, str]:
@@ -375,93 +431,49 @@ def _aws_uc_resource_names(catalog_name: str, aws_account_id: str) -> dict[str, 
     }
 
 
-def _iam_trust_policy_initial(external_id: str = UC_PLACEHOLDER_EXTERNAL_ID) -> str:
-    """Trust policy for new IAM roles — UC master only (role cannot self-reference yet)."""
-    return json.dumps(
+def _iam_trust_policy(
+    external_id: str,
+    *,
+    role_arn: str | None = None,
+    self_assume_via_root: bool = False,
+) -> str:
+    """Build IAM trust policy for Unity Catalog storage credentials.
+
+    New roles start with UC master only (role_arn=None). After the storage
+    credential exists, add self-assume in a separate statement — AWS rejects
+    mixing cross-account and same-account principals in one statement.
+    """
+    external_id = str(external_id).strip()
+    statements: list[dict] = [
         {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Principal": {"AWS": UC_AWS_MASTER_ROLE_ARN},
-                    "Action": "sts:AssumeRole",
-                    "Condition": {
-                        "StringEquals": {"sts:ExternalId": external_id},
-                    },
-                }
-            ],
+            "Sid": "UnityCatalogMasterAssume",
+            "Effect": "Allow",
+            "Principal": {"AWS": UC_AWS_MASTER_ROLE_ARN},
+            "Action": "sts:AssumeRole",
+            "Condition": {"StringEquals": {"sts:ExternalId": external_id}},
+        },
+    ]
+    if role_arn:
+        if self_assume_via_root:
+            account_id = role_arn.split(":")[4]
+            principal: dict[str, str] = {"AWS": f"arn:aws:iam::{account_id}:root"}
+            extra_condition = {"ArnLike": {"aws:PrincipalArn": role_arn}}
+        else:
+            principal = {"AWS": role_arn}
+            extra_condition = {}
+        self_statement: dict = {
+            "Sid": "RoleSelfAssume",
+            "Effect": "Allow",
+            "Principal": principal,
+            "Action": "sts:AssumeRole",
+            "Condition": {"StringEquals": {"sts:ExternalId": external_id}, **extra_condition},
         }
-    )
+        statements.append(self_statement)
+    return json.dumps({"Version": "2012-10-17", "Statement": statements})
 
 
 def _get_iam_role_arn(iam_client, role_name: str) -> str:
     return iam_client.get_role(RoleName=role_name)["Role"]["Arn"]
-
-
-def _iam_trust_policy_final(role_arn: str, external_id: str) -> str:
-    """Self-assuming trust policy required after the storage credential exists.
-
-    UC master and the role itself are separate statements — AWS rejects a single
-    statement that mixes cross-account and same-account role principals.
-    """
-    external_id = str(external_id).strip()
-    return json.dumps(
-        {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Sid": "UnityCatalogMasterAssume",
-                    "Effect": "Allow",
-                    "Principal": {"AWS": UC_AWS_MASTER_ROLE_ARN},
-                    "Action": "sts:AssumeRole",
-                    "Condition": {
-                        "StringEquals": {"sts:ExternalId": external_id},
-                    },
-                },
-                {
-                    "Sid": "RoleSelfAssume",
-                    "Effect": "Allow",
-                    "Principal": {"AWS": role_arn},
-                    "Action": "sts:AssumeRole",
-                    "Condition": {
-                        "StringEquals": {"sts:ExternalId": external_id},
-                    },
-                },
-            ],
-        }
-    )
-
-
-def _iam_trust_policy_final_root_fallback(role_arn: str, external_id: str) -> str:
-    """Alternate self-assume pattern when direct role-ARN principal is rejected."""
-    external_id = str(external_id).strip()
-    account_id = role_arn.split(":")[4]
-    return json.dumps(
-        {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Sid": "UnityCatalogMasterAssume",
-                    "Effect": "Allow",
-                    "Principal": {"AWS": UC_AWS_MASTER_ROLE_ARN},
-                    "Action": "sts:AssumeRole",
-                    "Condition": {
-                        "StringEquals": {"sts:ExternalId": external_id},
-                    },
-                },
-                {
-                    "Sid": "RoleSelfAssume",
-                    "Effect": "Allow",
-                    "Principal": {"AWS": f"arn:aws:iam::{account_id}:root"},
-                    "Action": "sts:AssumeRole",
-                    "Condition": {
-                        "StringEquals": {"sts:ExternalId": external_id},
-                        "ArnLike": {"aws:PrincipalArn": role_arn},
-                    },
-                },
-            ],
-        }
-    )
 
 
 def _iam_s3_access_policy(bucket_name: str, aws_account_id: str, role_name: str) -> str:
@@ -500,8 +512,7 @@ def _ensure_s3_bucket(s3_client, bucket_name: str) -> None:
         s3_client.head_bucket(Bucket=bucket_name)
         print(f"  [~] S3 bucket '{bucket_name}' (already exists)")
     except ClientError as e:
-        code = e.response.get("Error", {}).get("Code", "")
-        if code not in ("404", "NoSuchBucket", "NotFound"):
+        if _client_error_code(e) not in ("404", "NoSuchBucket", "NotFound"):
             raise
         s3_client.create_bucket(
             Bucket=bucket_name,
@@ -510,21 +521,20 @@ def _ensure_s3_bucket(s3_client, bucket_name: str) -> None:
         print(f"  [+] S3 bucket '{bucket_name}' ({AWS_UC_REGION})")
 
 
-def _ensure_iam_role(iam_client, aws_account_id: str, role_name: str) -> None:
+def _ensure_iam_role(iam_client, role_name: str) -> None:
     try:
         iam_client.get_role(RoleName=role_name)
         print(f"  [~] IAM role '{role_name}' (already exists)")
     except ClientError as e:
-        if e.response.get("Error", {}).get("Code") != "NoSuchEntity":
+        if _client_error_code(e) != "NoSuchEntity":
             raise
         iam_client.create_role(
             RoleName=role_name,
-            AssumeRolePolicyDocument=_iam_trust_policy_initial(),
+            AssumeRolePolicyDocument=_iam_trust_policy(UC_PLACEHOLDER_EXTERNAL_ID),
             Description="Unity Catalog storage access for workshop setup",
         )
         print(f"  [+] IAM role '{role_name}'")
-        # IAM needs a short propagation window before the role ARN is valid in trust policies.
-        time.sleep(10)
+        time.sleep(IAM_ROLE_PROPAGATION_SECONDS)
 
 
 def _ensure_iam_role_policy(
@@ -546,12 +556,15 @@ def _update_iam_trust_external_id(
     iam_client, role_name: str, external_id: str
 ) -> None:
     role_arn = _get_iam_role_arn(iam_client, role_name)
-    policies = [
-        ("role principal", _iam_trust_policy_final(role_arn, external_id)),
-        ("account root + ArnLike", _iam_trust_policy_final_root_fallback(role_arn, external_id)),
-    ]
+    policy_variants = (
+        ("role principal", False),
+        ("account root + ArnLike", True),
+    )
     last_error: ClientError | None = None
-    for label, policy in policies:
+    for label, use_root in policy_variants:
+        policy = _iam_trust_policy(
+            external_id, role_arn=role_arn, self_assume_via_root=use_root
+        )
         try:
             iam_client.update_assume_role_policy(
                 RoleName=role_name,
@@ -563,8 +576,7 @@ def _update_iam_trust_external_id(
             )
             return
         except ClientError as e:
-            code = e.response.get("Error", {}).get("Code", "")
-            if code != "MalformedPolicyDocument":
+            if _client_error_code(e) != "MalformedPolicyDocument":
                 raise
             last_error = e
             print(f"  [~] trust policy variant ({label}) rejected, trying next...")
@@ -579,14 +591,18 @@ def _update_iam_trust_external_id(
         raise last_error
 
 
+def _storage_credential_external_id(cred) -> str | None:
+    if cred.aws_iam_role and cred.aws_iam_role.external_id:
+        return cred.aws_iam_role.external_id
+    return None
+
+
 def _get_storage_credential_external_id(w: WorkspaceClient, credential_name: str) -> str | None:
     try:
         cred = w.storage_credentials.get(name=credential_name)
     except NotFound:
         return None
-    if cred.aws_iam_role and cred.aws_iam_role.external_id:
-        return cred.aws_iam_role.external_id
-    return None
+    return _storage_credential_external_id(cred)
 
 
 def _get_or_create_storage_credential(
@@ -597,20 +613,13 @@ def _get_or_create_storage_credential(
         print(f"  [~] storage credential '{credential_name}' (already exists)")
         return external_id
 
-    cred = w.storage_credentials.create(
+    w.storage_credentials.create(
         name=credential_name,
         aws_iam_role=AwsIamRoleRequest(role_arn=role_arn),
         comment="Workshop setup (disaster-recovery-tracker)",
         skip_validation=True,
     )
-    external_id = (
-        cred.aws_iam_role.external_id
-        if cred.aws_iam_role and cred.aws_iam_role.external_id
-        else None
-    )
-    if not external_id:
-        cred = w.storage_credentials.get(name=credential_name)
-        external_id = cred.aws_iam_role.external_id if cred.aws_iam_role else None
+    external_id = _get_storage_credential_external_id(w, credential_name)
     if not external_id:
         print(f"  [!] storage credential '{credential_name}' — no external ID returned")
         sys.exit(1)
@@ -635,21 +644,6 @@ def _validate_storage_credential(
     except Exception as e:
         print(f"  [!] storage credential validation — {e}")
         sys.exit(1)
-
-
-def _validate_external_location_access(
-    w: WorkspaceClient,
-    credential_name: str,
-    external_location_name: str,
-    location_url: str,
-) -> None:
-    """Confirm UC can reach S3 at the managed location path before creating volumes."""
-    _validate_storage_credential(
-        w,
-        credential_name,
-        location_url,
-        external_location_name=external_location_name,
-    )
 
 
 def _get_or_create_external_location(
@@ -680,7 +674,7 @@ def _get_or_create_external_location(
 
 def provision_aws_uc_storage_for_catalog(
     w: WorkspaceClient, catalog_name: str
-) -> dict[str, str]:
+) -> AwsUcStorage:
     """Create S3 bucket, IAM role, UC storage credential, and external location.
 
     Uses AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_SESSION_TOKEN from the
@@ -691,13 +685,13 @@ def provision_aws_uc_storage_for_catalog(
     sts = session.client("sts")
     aws_account_id = sts.get_caller_identity()["Account"]
     names = _aws_uc_resource_names(catalog_name, aws_account_id)
-    location_url = f"s3://{names['bucket_name']}/"
+    location_url = _normalize_storage_url(f"s3://{names['bucket_name']}")
 
     s3 = session.client("s3")
     iam = session.client("iam")
 
     _ensure_s3_bucket(s3, names["bucket_name"])
-    _ensure_iam_role(iam, aws_account_id, names["role_name"])
+    _ensure_iam_role(iam, names["role_name"])
     _ensure_iam_role_policy(
         iam,
         policy_name=f"{names['role_name']}-s3-access",
@@ -711,7 +705,6 @@ def provision_aws_uc_storage_for_catalog(
         w, names["storage_credential_name"], names["role_arn"]
     )
     _update_iam_trust_external_id(iam, names["role_name"], external_id)
-    _validate_storage_credential(w, names["storage_credential_name"], location_url)
 
     url = _get_or_create_external_location(
         w,
@@ -720,11 +713,11 @@ def provision_aws_uc_storage_for_catalog(
         names["storage_credential_name"],
     )
     managed_location = _catalog_managed_location(url, catalog_name)
-    _validate_external_location_access(
+    _validate_storage_credential(
         w,
         names["storage_credential_name"],
-        names["external_location_name"],
         managed_location,
+        external_location_name=names["external_location_name"],
     )
     return {
         "external_location_url": url,
@@ -767,10 +760,10 @@ def _ensure_catalog_managed_location(
     warehouse_id: str | None,
 ) -> None:
     """Create the catalog or point an existing catalog at the S3 managed location."""
-    managed_location = managed_location.rstrip("/") + "/"
+    managed_location = _normalize_storage_url(managed_location)
     current = _get_catalog_storage_root(w, catalog_name)
     if current:
-        if current.rstrip("/") == managed_location.rstrip("/"):
+        if _normalize_storage_url(current) == managed_location:
             print(
                 f"  [~] catalog '{catalog_name}' managed location "
                 f"({managed_location})"
@@ -806,45 +799,25 @@ def _grant_aws_uc_storage_access(
     storage_credential_name: str,
     external_location_name: str,
 ) -> None:
-    """Grant account users access for managed-catalog storage (not external volumes).
-
-    CREATE EXTERNAL VOLUME is omitted; the workshop filestore is a managed volume.
-    """
-    grant_specs: list[tuple[str, str, str, list[Privilege]]] = [
-        (
-            "storage_credential",
-            storage_credential_name,
-            "storage credential",
-            [
-                Privilege.CREATE_EXTERNAL_TABLE,
-                Privilege.READ_FILES,
-                Privilege.WRITE_FILES,
-            ],
-        ),
-        (
-            "external_location",
-            external_location_name,
-            "external location",
-            [Privilege.READ_FILES, Privilege.WRITE_FILES],
-        ),
-    ]
-    for securable_type, full_name, label, privileges in grant_specs:
-        try:
-            w.grants.update(
-                securable_type=securable_type,
-                full_name=full_name,
-                changes=[
-                    PermissionsChange(
-                        principal=ALL_USERS_PRINCIPAL,
-                        add=privileges,
-                    )
-                ],
-            )
-            privs = ", ".join(p.value for p in privileges)
-            print(f"  [+] grants on {label} '{full_name}' to '{ALL_USERS_PRINCIPAL}': {privs}")
-        except Exception as e:
-            print(f"  [!] grant on {label} '{full_name}' — {e}")
-            sys.exit(1)
+    """Grant account users access for managed-catalog storage (not external volumes)."""
+    _grant_privileges(
+        w,
+        securable_type="storage_credential",
+        full_name=storage_credential_name,
+        privileges=[
+            Privilege.CREATE_EXTERNAL_TABLE,
+            Privilege.READ_FILES,
+            Privilege.WRITE_FILES,
+        ],
+        description="storage credential",
+    )
+    _grant_privileges(
+        w,
+        securable_type="external_location",
+        full_name=external_location_name,
+        privileges=[Privilege.READ_FILES, Privilege.WRITE_FILES],
+        description="external location",
+    )
 
 
 def _first_external_location_url(w: WorkspaceClient) -> str | None:
@@ -884,7 +857,7 @@ def create_uc_resources(
 
     # Catalog MANAGED LOCATION: S3 + storage credential + external location.
     # Use --skip-aws-provisioning to fall back without AWS env vars.
-    aws_storage: dict[str, str] | None = None
+    aws_storage: AwsUcStorage | None = None
     if provision_aws_storage:
         _require_aws_credentials()
         aws_storage = provision_aws_uc_storage_for_catalog(w, catalog_name)
@@ -923,33 +896,13 @@ def create_uc_resources(
             error_label=f"schema '{catalog_name}.{schema}'",
         )
 
-    # Grant USE CATALOG / USE SCHEMA / SELECT on the catalog to every workspace
-    # user so workshop participants can browse and query fema.bronze.*, fema.silver.*.
-    try:
-        w.grants.update(
-            securable_type="catalog",
-            full_name=catalog_name,
-            changes=[
-                PermissionsChange(
-                    principal=ALL_USERS_PRINCIPAL,
-                    add=[Privilege.USE_CATALOG, Privilege.USE_SCHEMA, Privilege.SELECT],
-                )
-            ],
-        )
-        print(f"  [+] grants on '{catalog_name}' to '{ALL_USERS_PRINCIPAL}': USE CATALOG, USE SCHEMA, SELECT")
-    except Exception as e:
-        print(f"  [!] grant on '{catalog_name}' — {e}")
-        sys.exit(1)
-
-    # Managed volume referenced by backend VOLUME_PATH (requires catalog managed
-    # location backed by a storage credential — credentialName=None 403 otherwise).
-    if aws_storage:
-        _validate_external_location_access(
-            w,
-            aws_storage["storage_credential_name"],
-            aws_storage["external_location_name"],
-            aws_storage["managed_location"],
-        )
+    _grant_privileges(
+        w,
+        securable_type="catalog",
+        full_name=catalog_name,
+        privileges=[Privilege.USE_CATALOG, Privilege.USE_SCHEMA, Privilege.SELECT],
+        description=f"catalog '{catalog_name}'",
+    )
 
     full_volume = f"/Volumes/{catalog_name}/{volume_schema}/{volume_name}"
     _create_idempotent(
@@ -965,28 +918,13 @@ def create_uc_resources(
     )
 
     volume_securable_name = f"{catalog_name}.{volume_schema}.{volume_name}"
-    try:
-        w.grants.update(
-            securable_type="volume",
-            full_name=volume_securable_name,
-            changes=[
-                PermissionsChange(
-                    principal=ALL_USERS_PRINCIPAL,
-                    add=[
-                        Privilege.READ_VOLUME,
-                        Privilege.WRITE_VOLUME,
-                        Privilege.MANAGE,
-                    ],
-                )
-            ],
-        )
-        print(
-            f"  [+] volume grant on '{volume_securable_name}' to "
-            f"'{ALL_USERS_PRINCIPAL}': READ_VOLUME, WRITE_VOLUME, MANAGE"
-        )
-    except Exception as e:
-        print(f"  [!] volume grant on '{volume_securable_name}' — {e}")
-        sys.exit(1)
+    _grant_privileges(
+        w,
+        securable_type="volume",
+        full_name=volume_securable_name,
+        privileges=[Privilege.READ_VOLUME, Privilege.WRITE_VOLUME, Privilege.MANAGE],
+        description=f"volume '{volume_securable_name}'",
+    )
 
 
 # ---------------------------------------------------------------------------
