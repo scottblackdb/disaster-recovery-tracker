@@ -37,12 +37,14 @@ Skim these items so deployment choices make sense:
 
 ## Part C — Create a Databricks App
 
+**Ensure you are clicking Next when deploying the app and not Create button.**
+
 1. Click on the Create button. ![create app](./images/selectApp.jpeg)
 
 2. Select Custom App ![select app](./images/customApp.jpeg)
 
 
-3. Name Your Application fema-claims-tracker-<your name> then click Next. The max. length for an application is 30 characters so you may have to shorten your name.
+3. Name Your Application **fema-claims-tracker-< your name >** then click Next. The max. length for an application is 30 characters so you may have to shorten your name.
 
 4. Configure Git Source. Add the git url of the project as the source for the app. Click Create App ![select app](./images/gitApp.jpeg)
 
@@ -51,36 +53,36 @@ Skim these items so deployment choices make sense:
    - **SQL Warehouse** serves as the data warehouse for analytics and heavy reporting.
    - **UC Volume** serves as a filestore to hold non-tabular data such as images and files. Ensure the permissions are set to **Read And Write**.
 
+   - Leave the app telemetry blank
+
 6. Click the Deploy button. Use **`main`** as the branch and then click Deploy ![select app](./images/deployApp.jpeg)
 
-7. It will take 2 to 3 minutes for the initial deployment. Future deployments will be much faster. After the deployment is complete click on the URL for the app and verify you are able to log in to the app.
+7. It will take 2 to 3 minutes for the initial deployment. Future deployments will be much faster. 
+8. The application will fail due to a lack of database permissions which you will next in the next part.
 
 ---
 
-## Part D — Resolve "permission denied for schema public"
+## Part D — Grant the App Service Principal Database Permissions
 
-On its first run, the app tries to create its tables (`fema_categories`, `claims`, `documents`, `claim_status_history`) in the Lakebase `public` schema. PostgreSQL 15+ tightened the default permissions on `public`, so on a brand‑new Lakebase the app's role cannot create objects there yet. You will see this in the app logs (and the app UI may show an error on first load):
+When Databricks Apps deploys your app it creates a dedicated **service principal (SP)** and automatically grants it the ability to *connect* to the Lakebase project you configured in Part C. However, connection access alone is not enough — the SP does not yet have permission to read or write any tables, sequences, or other database objects inside the database.
 
-```
-psycopg.errors.InsufficientPrivilege: permission denied for schema public
-LINE 1: CREATE TABLE IF NOT EXISTS fema_categories (
-```
+To keep this lab simple we will grant the SP the built-in **`databricks_superuser`** role, which gives it full control over all objects in the database.
 
-Grant your app's Postgres role permission to use and create objects in `public`, then redeploy.
+> **⚠ Not a production pattern.** Granting `databricks_superuser` to an application principal is convenient for a short-lived lab environment but is not a best practice for production. In a real deployment you would create a dedicated role with only the privileges the app needs (e.g. `SELECT`, `INSERT`, `UPDATE`, `DELETE` on the specific tables), follow the principle of least privilege, and rotate credentials regularly.
 
-1. In the Lakebase view, open the **`disaster-recovery-tracker`** project.
-2. Click the **New Query** button (or open the **SQL Editor** for the Lakebase). This connects you as the Lakebase owner role (`databricks_superuser`), which has permission to grant on `public`.
-3. Confirm you are connected to the **`databricks_postgres`** database (the default Lakebase database). Then run:
+### Steps
 
-   ```sql
-   GRANT USAGE, CREATE ON SCHEMA public TO PUBLIC;
-   ```
-
-   This grants every existing and future role in this Lakebase — including your app's service principal — the ability to use the `public` schema and create tables in it. (For a tighter grant, replace `PUBLIC` with the quoted service-principal role name of your app.)
-
-4. Return to your app's page in Databricks and click **Deploy** again (branch `main`). Once the new deployment is **Running**, refresh the app URL — the bootstrap script will now succeed and you should land on the app's home page.
-
-> If the error reappears after the redeploy, double-check that the `disaster-recovery-lakebase` resource on your app points at the `disaster-recovery-tracker` project / `production` branch / `primary` endpoint and that the resource has **Read And Write** access.
+1. In the App view go to your application and then click on the **`Authorization`** on the left vertical menu. Make note of your applications's **service principal**.
+ ![find sp](./images/findAppSP.jpeg)
+2. In the Lakebase Postgres  view, open the **`Disaster Recovery Tracker`** Lakebase project.
+3. Click on **`Overview`** under the Branch.
+4. Click on **`Roles & Database`** tab.
+5. Locate the service principal for your app.
+6. Click 3 dot icon to the right and then click **`Edit`**.
+7. Under **System roles**, select **`databricks_superuser`**.
+8. Click **`Save`**.
+9. Return to your application overview page and click **`Deploy`** button.
+10. Verify your application remains in a running state.
 
 ---
 
