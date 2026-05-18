@@ -10,15 +10,20 @@ import configparser
 import re
 import sys
 import time
+from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
 
 try:
     from databricks.sdk import WorkspaceClient
     from databricks.sdk.common.lro import LroOptions
-    from databricks.sdk.errors import AlreadyExists, ResourceAlreadyExists
+    from databricks.sdk.errors import AlreadyExists, NotFound, ResourceAlreadyExists
     from databricks.sdk.service import iam, postgres
     from databricks.sdk.service.catalog import PermissionsChange, Privilege, VolumeType
+    from databricks.sdk.service.sql import (
+        ExecuteStatementRequestOnWaitTimeout,
+        StatementState,
+    )
 except ImportError:
     print("Error: databricks-sdk is required.  pip install databricks-sdk")
     sys.exit(1)
@@ -67,18 +72,19 @@ def select_profile(profiles: list[str], profile_arg: str | None) -> str:
     for i, p in enumerate(profiles, 1):
         print(f"  {i}. {p}")
 
+    prompt = f"Please enter a number between 1 and {len(profiles)}"
     while True:
         try:
             choice = input(f"\nSelect profile [1-{len(profiles)}]: ").strip()
             idx = int(choice) - 1
             if 0 <= idx < len(profiles):
                 return profiles[idx]
-            print(f"Please enter a number between 1 and {len(profiles)}")
         except ValueError:
-            print(f"Please enter a number between 1 and {len(profiles)}")
+            pass
         except (KeyboardInterrupt, EOFError):
             print("\nAborted.")
             sys.exit(1)
+        print(prompt)
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +103,27 @@ def _to_project_id(name: str) -> str:
     if not slug or not slug[0].isalpha():
         slug = "ws-" + slug
     return slug[:63]
+
+
+def _lakebase_project_resource_name(project_id: str) -> str:
+    """Full Lakebase project path required by get_project (projects/{project_id})."""
+    if project_id.startswith("projects/"):
+        return project_id
+    return f"projects/{project_id}"
+
+
+def _lakebase_project_exists(w: WorkspaceClient, project_id: str) -> bool:
+    """Return True if a Lakebase project with this ID already exists."""
+    try:
+        w.postgres.get_project(name=_lakebase_project_resource_name(project_id))
+        return True
+    except NotFound:
+        return False
+    except Exception as e:
+        msg = str(e).lower()
+        if any(k in msg for k in ("not found", "does not exist", "404")):
+            return False
+        raise
 
 
 def _grant_lakebase_project_manage_all_account_users(w: WorkspaceClient, project_id: str) -> None:
@@ -125,8 +152,20 @@ def _grant_lakebase_project_manage_all_account_users(w: WorkspaceClient, project
         sys.exit(1)
 
 
-def create_lakebase(w: WorkspaceClient, display_name: str, pg_version: int = 17) -> None:
+def create_lakebase(
+    w: WorkspaceClient,
+    display_name: str,
+    pg_version: int = 17,
+    *,
+    skip_if_exists: bool = False,
+) -> None:
     project_id = _to_project_id(display_name)
+    if skip_if_exists and _lakebase_project_exists(w, project_id):
+        print(
+            f"\nSkipping Lakebase project '{display_name}' (id: {project_id}) — already exists."
+        )
+        return
+
     print(f"\nCreating autoscaling Lakebase project '{display_name}' (id: {project_id}, pg{pg_version})...")
 
     project = postgres.Project(
@@ -140,9 +179,15 @@ def create_lakebase(w: WorkspaceClient, display_name: str, pg_version: int = 17)
         op = w.postgres.create_project(project=project, project_id=project_id)
     except (AlreadyExists, ResourceAlreadyExists):
         print(f"  Lakebase project '{project_id}' already exists, skipping.")
-        _grant_lakebase_project_manage_all_account_users(w, project_id)
+        if not skip_if_exists:
+            _grant_lakebase_project_manage_all_account_users(w, project_id)
         return
     except Exception as e:
+        if _is_already_exists(e):
+            print(f"  Lakebase project '{project_id}' already exists, skipping.")
+            if not skip_if_exists:
+                _grant_lakebase_project_manage_all_account_users(w, project_id)
+            return
         print(f"  Error: {e}")
         sys.exit(1)
 
@@ -155,6 +200,7 @@ def create_lakebase(w: WorkspaceClient, display_name: str, pg_version: int = 17)
         _grant_lakebase_project_manage_all_account_users(w, project_id)
     except Exception as e:
         print(f"\n  Operation ended: {e}")
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -162,8 +208,90 @@ def create_lakebase(w: WorkspaceClient, display_name: str, pg_version: int = 17)
 # ---------------------------------------------------------------------------
 
 def _is_already_exists(exc: Exception) -> bool:
+    if isinstance(exc, (AlreadyExists, ResourceAlreadyExists)):
+        return True
     msg = str(exc).lower()
-    return any(k in msg for k in ("already exists", "conflict", "409"))
+    return any(k in msg for k in ("already exists", "conflict", "409", "uniqueness"))
+
+
+def _create_idempotent(
+    create_fn: Callable[[], None],
+    *,
+    created_msg: str,
+    exists_msg: str,
+    error_label: str,
+) -> None:
+    """Run a create call; treat 'already exists' as success, exit on other errors."""
+    try:
+        create_fn()
+        print(f"  [+] {created_msg}")
+    except (AlreadyExists, ResourceAlreadyExists):
+        print(f"  [~] {exists_msg}")
+    except Exception as e:
+        if _is_already_exists(e):
+            print(f"  [~] {exists_msg}")
+        else:
+            print(f"  [!] {error_label} — {e}")
+            sys.exit(1)
+
+
+def _sql_identifier(name: str, *, label: str) -> str:
+    """Validate a Unity Catalog identifier for safe use in SQL."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+        print(f"Error: invalid {label} {name!r} for SQL (use letters, numbers, _, -)")
+        sys.exit(1)
+    return name
+
+
+def _resolve_sql_warehouse_id(w: WorkspaceClient, warehouse_id: str | None) -> str:
+    if warehouse_id:
+        return warehouse_id
+    for wh in w.warehouses.list():
+        if wh.id:
+            return wh.id
+    print("Error: no SQL warehouse found; create one or pass --warehouse-id")
+    sys.exit(1)
+
+
+def _execute_sql_statement(w: WorkspaceClient, warehouse_id: str, statement: str) -> None:
+    """Run a SQL statement on a SQL warehouse; exit on failure."""
+    resp = w.statement_execution.execute_statement(
+        statement=statement,
+        warehouse_id=warehouse_id,
+        wait_timeout="50s",
+        on_wait_timeout=ExecuteStatementRequestOnWaitTimeout.CONTINUE,
+    )
+    deadline = time.time() + 120
+    while resp.status and resp.status.state not in (
+        StatementState.SUCCEEDED,
+        StatementState.FAILED,
+        StatementState.CANCELED,
+        StatementState.CLOSED,
+    ):
+        if time.time() >= deadline:
+            break
+        time.sleep(2)
+        resp = w.statement_execution.get_statement(resp.statement_id)
+
+    if resp.status is None:
+        print("  [!] SQL statement execution: missing status")
+        sys.exit(1)
+    if resp.status.state != StatementState.SUCCEEDED:
+        err = resp.status.error.as_dict() if resp.status.error else {}
+        print(f"  [!] SQL failed: state={resp.status.state} detail={err}")
+        sys.exit(1)
+
+
+def _create_catalog_if_not_exists_sql(
+    w: WorkspaceClient,
+    catalog_name: str,
+    warehouse_id: str | None,
+) -> None:
+    safe_name = _sql_identifier(catalog_name, label="catalog name")
+    wh_id = _resolve_sql_warehouse_id(w, warehouse_id)
+    statement = f"CREATE CATALOG IF NOT EXISTS {safe_name}"
+    _execute_sql_statement(w, wh_id, statement)
+    print(f"  [+] catalog '{catalog_name}' ({statement})")
 
 
 def _first_external_location_url(w: WorkspaceClient) -> str | None:
@@ -192,6 +320,8 @@ def create_uc_resources(
     silver_schema: str = DEFAULT_SILVER_SCHEMA,
     volume_schema: str = DEFAULT_VOLUME_SCHEMA,
     volume_name: str = DEFAULT_VOLUME_NAME,
+    *,
+    warehouse_id: str | None = None,
 ) -> None:
     """Create the catalog, bronze/silver/volume schemas, the managed volume the
     backend uses, grant read access on the catalog to all account users, and
@@ -199,35 +329,28 @@ def create_uc_resources(
     print(f"\nCreating Unity Catalog resources (catalog: {catalog_name})...")
 
     # Catalog. Workspaces without a metastore storage root require an explicit
-    # MANAGED LOCATION; fall back to the first external location's URL.
+    # MANAGED LOCATION; use the first user-defined external location when present.
+    # Otherwise use CREATE CATALOG IF NOT EXISTS via SQL (metastore default storage).
     storage_root = _first_external_location_url(w)
-    try:
-        w.catalogs.create(name=catalog_name, storage_root=storage_root)
-        loc_note = f" (storage_root={storage_root})" if storage_root else ""
-        print(f"  [+] catalog '{catalog_name}'{loc_note}")
-    except (AlreadyExists, ResourceAlreadyExists):
-        print(f"  [~] catalog '{catalog_name}' (already exists)")
-    except Exception as e:
-        if _is_already_exists(e):
-            print(f"  [~] catalog '{catalog_name}' (already exists)")
-        else:
-            print(f"  [!] catalog '{catalog_name}' — {e}")
-            sys.exit(1)
+    if storage_root:
+        _create_idempotent(
+            lambda: w.catalogs.create(name=catalog_name, storage_root=storage_root),
+            created_msg=f"catalog '{catalog_name}' (storage_root={storage_root})",
+            exists_msg=f"catalog '{catalog_name}' (already exists)",
+            error_label=f"catalog '{catalog_name}'",
+        )
+    else:
+        _create_catalog_if_not_exists_sql(w, catalog_name, warehouse_id)
 
     # Schemas (bronze + silver + the schema that holds the volume; UC auto-creates
     # 'default' but we attempt it idempotently in case the catalog was created without one)
-    for schema in {bronze_schema, silver_schema, volume_schema}:
-        try:
-            w.schemas.create(name=schema, catalog_name=catalog_name)
-            print(f"  [+] schema '{catalog_name}.{schema}'")
-        except (AlreadyExists, ResourceAlreadyExists):
-            print(f"  [~] schema '{catalog_name}.{schema}' (already exists)")
-        except Exception as e:
-            if _is_already_exists(e):
-                print(f"  [~] schema '{catalog_name}.{schema}' (already exists)")
-            else:
-                print(f"  [!] schema '{catalog_name}.{schema}' — {e}")
-                sys.exit(1)
+    for schema in (bronze_schema, silver_schema, volume_schema):
+        _create_idempotent(
+            lambda s=schema: w.schemas.create(name=s, catalog_name=catalog_name),
+            created_msg=f"schema '{catalog_name}.{schema}'",
+            exists_msg=f"schema '{catalog_name}.{schema}' (already exists)",
+            error_label=f"schema '{catalog_name}.{schema}'",
+        )
 
     # Grant USE CATALOG / USE SCHEMA / SELECT on the catalog to every workspace
     # user so workshop participants can browse and query fema.bronze.*, fema.silver.*.
@@ -249,22 +372,17 @@ def create_uc_resources(
 
     # Managed volume referenced by backend VOLUME_PATH
     full_volume = f"/Volumes/{catalog_name}/{volume_schema}/{volume_name}"
-    try:
-        w.volumes.create(
+    _create_idempotent(
+        lambda: w.volumes.create(
             catalog_name=catalog_name,
             schema_name=volume_schema,
             name=volume_name,
             volume_type=VolumeType.MANAGED,
-        )
-        print(f"  [+] volume '{full_volume}'")
-    except (AlreadyExists, ResourceAlreadyExists):
-        print(f"  [~] volume '{full_volume}' (already exists)")
-    except Exception as e:
-        if _is_already_exists(e):
-            print(f"  [~] volume '{full_volume}' (already exists)")
-        else:
-            print(f"  [!] volume '{full_volume}' — {e}")
-            sys.exit(1)
+        ),
+        created_msg=f"volume '{full_volume}'",
+        exists_msg=f"volume '{full_volume}' (already exists)",
+        error_label=f"volume '{full_volume}'",
+    )
 
     volume_securable_name = f"{catalog_name}.{volume_schema}.{volume_name}"
     try:
@@ -320,12 +438,8 @@ def provision_users(w: WorkspaceClient, users_file: str) -> None:
             )
             print(f"  [+] {email}")
             success += 1
-        except (AlreadyExists, ResourceAlreadyExists):
-            print(f"  [~] {email} (already exists)")
-            skipped += 1
         except Exception as e:
-            msg = str(e).lower()
-            if any(k in msg for k in ("already exists", "conflict", "409", "uniqueness")):
+            if _is_already_exists(e):
                 print(f"  [~] {email} (already exists)")
                 skipped += 1
             else:
@@ -359,6 +473,9 @@ examples:
 
   # Specify profile and custom name:
   python setup_workshop.py --profile fema --lakebase-name "dr-workshop" --users-file participants.txt
+
+  # Re-run full setup but leave an existing Lakebase project untouched:
+  python setup_workshop.py --skip-lakebase-if-exists --users-file participants.txt
         """,
     )
 
@@ -392,6 +509,22 @@ examples:
         metavar="NAME",
         help=f"Unity Catalog name (default: {DEFAULT_CATALOG})",
     )
+    parser.add_argument(
+        "--warehouse-id",
+        metavar="ID",
+        help=(
+            "SQL warehouse ID for CREATE CATALOG IF NOT EXISTS when no external "
+            "location is available (default: first warehouse in the workspace)"
+        ),
+    )
+    parser.add_argument(
+        "--skip-lakebase-if-exists",
+        action="store_true",
+        help=(
+            "If the Lakebase project already exists, skip creation and permission "
+            "updates (default: still apply CAN_MANAGE for All account users)"
+        ),
+    )
 
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
@@ -422,15 +555,17 @@ examples:
 
     w = WorkspaceClient(profile=profile)
 
+    lakebase_kwargs = {"skip_if_exists": args.skip_lakebase_if_exists}
+
     if args.users_only:
         provision_users(w, args.users_file)
     elif args.lakebase_only:
-        create_lakebase(w, args.lakebase_name, args.pg_version)
+        create_lakebase(w, args.lakebase_name, args.pg_version, **lakebase_kwargs)
     elif args.uc_only:
-        create_uc_resources(w, args.catalog)
+        create_uc_resources(w, args.catalog, warehouse_id=args.warehouse_id)
     else:
-        create_lakebase(w, args.lakebase_name, args.pg_version)
-        create_uc_resources(w, args.catalog)
+        create_lakebase(w, args.lakebase_name, args.pg_version, **lakebase_kwargs)
+        create_uc_resources(w, args.catalog, warehouse_id=args.warehouse_id)
         provision_users(w, args.users_file)
 
     print("\nWorkshop setup complete.")
