@@ -14,6 +14,10 @@ ENDPOINT_NAME = os.getenv(
     "ENDPOINT_NAME",
     "projects/disaster-recovery-tracker/branches/production/endpoints/primary",
 )
+# Used when ENDPOINT_NAME (or the app.yaml postgres resource) is not present in the workspace.
+LAKEBASE_ENDPOINT_FALLBACK = (
+    "projects/disaster-recovery/branches/production/endpoints/primary"
+)
 PGUSER = os.getenv("PGUSER", "")
 PGHOST = os.getenv("PGHOST", "")
 PGPORT = os.getenv("PGPORT", "5432")

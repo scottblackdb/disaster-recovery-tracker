@@ -29,6 +29,7 @@ from psycopg_pool import ConnectionPool
 
 from config import (
     ENDPOINT_NAME,
+    LAKEBASE_ENDPOINT_FALLBACK,
     MAX_IMAGE_UPLOAD_BYTES,
     PGDATABASE,
     PGHOST,
@@ -36,6 +37,7 @@ from config import (
     PGSSLMODE,
     PGUSER,
 )
+from databricks.sdk.errors import NotFound
 from databricks_auth import w
 from document_ai import (
     SQL_UPDATE_DOCUMENT_AI_FIELDS,
@@ -82,6 +84,49 @@ _VOLUME_FILE_ABSENT_ERROR_MARKERS: frozenset[str] = frozenset(
 # ``generate_database_credential`` on each new physical connection.
 _POOL_MAX_LIFETIME_SEC = 45 * 60
 
+_resolved_lakebase_endpoint: str | None = None
+
+
+def _lakebase_endpoint_not_found(exc: Exception) -> bool:
+    if isinstance(exc, NotFound):
+        return True
+    msg = str(exc).lower()
+    return any(marker in msg for marker in ("not found", "does not exist", "404"))
+
+
+def _resolve_lakebase_endpoint() -> str:
+    """Return a Lakebase endpoint path, falling back when the configured one is missing."""
+    global _resolved_lakebase_endpoint
+    if _resolved_lakebase_endpoint is not None:
+        return _resolved_lakebase_endpoint
+
+    candidates: list[str] = []
+    for name in (ENDPOINT_NAME, LAKEBASE_ENDPOINT_FALLBACK):
+        if name and name not in candidates:
+            candidates.append(name)
+
+    for name in candidates:
+        try:
+            w.postgres.get_endpoint(name=name)
+        except Exception as exc:
+            if not _lakebase_endpoint_not_found(exc):
+                raise
+            continue
+        if name != ENDPOINT_NAME:
+            _logger.warning(
+                "Lakebase endpoint %s not found — using fallback %s",
+                ENDPOINT_NAME,
+                name,
+            )
+        else:
+            _logger.info("Using Lakebase endpoint %s", name)
+        _resolved_lakebase_endpoint = name
+        return name
+
+    raise RuntimeError(
+        "No Lakebase endpoint available. Tried: " + ", ".join(candidates)
+    )
+
 
 def _volume_delete_error_is_absent(err: Exception) -> bool:
     err_l = str(err).lower()
@@ -93,7 +138,7 @@ class OAuthConnection(psycopg.Connection):
 
     @classmethod
     def connect(cls, conninfo="", **kwargs):
-        cred = w.postgres.generate_database_credential(endpoint=ENDPOINT_NAME)
+        cred = w.postgres.generate_database_credential(endpoint=_resolve_lakebase_endpoint())
         kwargs["password"] = cred.token
         return super().connect(conninfo, **kwargs)
 
@@ -108,7 +153,8 @@ def _build_conninfo() -> str:
     user = PGUSER
     if not host or not user:
         _logger.info("PGHOST/PGUSER not set — deriving from SDK endpoint metadata")
-        ep = w.postgres.list_endpoints(parent=ENDPOINT_NAME.rsplit("/endpoints/", 1)[0])
+        branch = _resolve_lakebase_endpoint().rsplit("/endpoints/", 1)[0]
+        ep = w.postgres.list_endpoints(parent=branch)
         first = next(iter(ep))
         host = host or first.status.hosts.host
         if not user:
@@ -146,7 +192,7 @@ def get_db_connection():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    cred = w.postgres.generate_database_credential(endpoint=ENDPOINT_NAME)
+    cred = w.postgres.generate_database_credential(endpoint=_resolve_lakebase_endpoint())
     await asyncio.to_thread(
         ensure_database_schema,
         conninfo=_build_conninfo(),
