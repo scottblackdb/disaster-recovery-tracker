@@ -765,10 +765,17 @@ def dashboard_stats():
             total_approved = cur.fetchone()["total"]
 
             cur.execute("""
-                SELECT fc.code, fc.name, COUNT(c.id) as count, COALESCE(SUM(c.estimated_cost), 0) as total_cost
-                FROM fema_categories fc
-                LEFT JOIN claims c ON c.fema_category_id = fc.id
-                GROUP BY fc.code, fc.name ORDER BY fc.code
+                SELECT
+                    COALESCE(fc.code, '') AS code,
+                    COALESCE(fc.name, 'Unassigned') AS name,
+                    COUNT(c.id) AS count,
+                    COALESCE(SUM(c.estimated_cost), 0) AS total_cost
+                FROM claims c
+                LEFT JOIN fema_categories fc ON c.fema_category_id = fc.id
+                GROUP BY fc.code, fc.name
+                ORDER BY
+                    CASE WHEN fc.code IS NULL THEN 1 ELSE 0 END,
+                    fc.code
             """)
             by_category = list(cur.fetchall())
 

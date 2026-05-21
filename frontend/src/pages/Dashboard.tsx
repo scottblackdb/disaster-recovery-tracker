@@ -97,30 +97,36 @@ export default function Dashboard() {
           <Card elevation={2}>
             <CardContent>
               <Typography variant="h6" fontWeight={600} mb={2}>Claims by FEMA Category</Typography>
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell><strong>Category</strong></TableCell>
-                      <TableCell><strong>Name</strong></TableCell>
-                      <TableCell align="right"><strong>Claims</strong></TableCell>
-                      <TableCell align="right"><strong>Total Cost</strong></TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {stats.by_category.map((cat) => (
-                      <TableRow key={cat.code}>
-                        <TableCell>
-                          <Typography fontWeight={700} color="primary">Cat {cat.code}</Typography>
-                        </TableCell>
-                        <TableCell>{cat.name}</TableCell>
-                        <TableCell align="right">{cat.count}</TableCell>
-                        <TableCell align="right">{formatCurrency(cat.total_cost)}</TableCell>
+              {stats.by_category.length === 0 ? (
+                <Typography color="text.secondary">No claims yet</Typography>
+              ) : (
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell><strong>Category</strong></TableCell>
+                        <TableCell><strong>Name</strong></TableCell>
+                        <TableCell align="right"><strong>Claims</strong></TableCell>
+                        <TableCell align="right"><strong>Total Cost</strong></TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+                    </TableHead>
+                    <TableBody>
+                      {stats.by_category.map((cat) => (
+                        <TableRow key={cat.code || 'unassigned'}>
+                          <TableCell>
+                            <Typography fontWeight={700} color="primary">
+                              {cat.code ? `Cat ${cat.code}` : 'Unassigned'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>{cat.name}</TableCell>
+                          <TableCell align="right">{cat.count}</TableCell>
+                          <TableCell align="right">{formatCurrency(cat.total_cost)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
             </CardContent>
           </Card>
         </Grid>
