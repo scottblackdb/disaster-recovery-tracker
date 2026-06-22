@@ -70,6 +70,10 @@ UC_PLACEHOLDER_EXTERNAL_ID = "0000"
 # UI label: All account users).
 ALL_USERS_PRINCIPAL = "account users"
 
+# Workspace entitlements each workshop participant needs: access to the
+# workspace itself and to Databricks SQL (warehouses/dashboards/queries).
+WORKSHOP_ENTITLEMENTS = ("workspace-access", "databricks-sql-access")
+
 # Seconds to wait after creating a new IAM role before updating its trust policy.
 IAM_ROLE_PROPAGATION_SECONDS = 10
 
@@ -263,6 +267,46 @@ def _grant_lakebase_project_manage_all_account_users(w: WorkspaceClient, project
     except Exception as e:
         print(f"  [!] Lakebase project permissions on '{project_id}' — {e}")
         sys.exit(1)
+
+
+def _account_users_can_manage_lakebase(w: WorkspaceClient, project_id: str) -> bool:
+    """Return True if the All-account-users group already has CAN_MANAGE on the project."""
+    perms = w.permissions.get(
+        request_object_type="database-projects",
+        request_object_id=project_id,
+    )
+    for ace in perms.access_control_list or []:
+        if ace.group_name != ALL_USERS_PRINCIPAL:
+            continue
+        levels = {p.permission_level for p in (ace.all_permissions or [])}
+        if iam.PermissionLevel.CAN_MANAGE in levels:
+            return True
+    return False
+
+
+def verify_lakebase_project_permission(w: WorkspaceClient, display_name: str) -> None:
+    """Ensure the Lakebase project CAN_MANAGE grant for All account users is in place.
+
+    Safe to call on re-runs: reads the current ACL and only (re)grants if the
+    group's CAN_MANAGE permission is missing.
+    """
+    project_id = _to_project_id(display_name)
+    try:
+        if not _lakebase_project_exists(w, project_id):
+            print(
+                f"  [!] Lakebase project '{project_id}' not found — skipping permission check"
+            )
+            return
+        if _account_users_can_manage_lakebase(w, project_id):
+            print(
+                f"  [~] Lakebase project '{project_id}': CAN_MANAGE for "
+                f"'{ALL_USERS_PRINCIPAL}' already granted"
+            )
+            return
+    except Exception as e:
+        print(f"  [!] could not verify Lakebase project permissions on '{project_id}' — {e}")
+        return
+    _grant_lakebase_project_manage_all_account_users(w, project_id)
 
 
 def _lakebase_on_already_exists(
@@ -934,7 +978,53 @@ def create_uc_resources(
 # Users
 # ---------------------------------------------------------------------------
 
-def provision_users(w: WorkspaceClient, users_file: str) -> None:
+def _entitlement_values() -> list[iam.ComplexValue]:
+    return [iam.ComplexValue(value=e) for e in WORKSHOP_ENTITLEMENTS]
+
+
+def _find_user(w: WorkspaceClient, email: str) -> iam.User | None:
+    """Return the existing workspace user with this user_name, or None.
+
+    list() responses often omit the ``entitlements`` attribute, so re-fetch the
+    full resource with get() to get an authoritative entitlement list.
+    """
+    escaped = email.replace('"', '\\"')
+    match = next(iter(w.users.list(filter=f'userName eq "{escaped}"')), None)
+    if match is None or not match.id:
+        return None
+    return w.users.get(id=match.id)
+
+
+def _ensure_entitlements(w: WorkspaceClient, user: iam.User) -> int:
+    """Grant any workshop entitlements the user is missing. Returns count added."""
+    current = {e.value for e in (user.entitlements or []) if e.value}
+    missing = [e for e in WORKSHOP_ENTITLEMENTS if e not in current]
+    if not missing:
+        return 0
+
+    operations = [
+        iam.Patch(
+            op=iam.PatchOp.ADD,
+            path="entitlements",
+            value=[{"value": e} for e in missing],
+        )
+    ]
+    w.users.patch(
+        id=user.id,
+        operations=operations,
+        schemas=[iam.PatchSchema.URN_IETF_PARAMS_SCIM_API_MESSAGES_2_0_PATCH_OP],
+    )
+    print(f"      + entitlements: {', '.join(missing)}")
+    return len(missing)
+
+
+def provision_users(
+    w: WorkspaceClient,
+    users_file: str,
+    lakebase_name: str | None = None,
+    *,
+    verify_lakebase_permission: bool = False,
+) -> None:
     path = Path(users_file)
     if not path.exists():
         print(f"Error: users file '{users_file}' not found.")
@@ -951,7 +1041,7 @@ def provision_users(w: WorkspaceClient, users_file: str) -> None:
 
     print(f"\nProvisioning {len(emails)} user(s)...")
 
-    success = skipped = failed = 0
+    success = skipped = failed = warnings = 0
     for email in emails:
         display = email.split("@")[0]
         try:
@@ -960,18 +1050,41 @@ def provision_users(w: WorkspaceClient, users_file: str) -> None:
                 display_name=display,
                 active=True,
                 emails=[iam.ComplexValue(value=email, primary=True)],
+                entitlements=_entitlement_values(),
             )
             print(f"  [+] {email}")
             success += 1
         except Exception as e:
-            if _is_already_exists(e):
-                print(f"  [~] {email} (already exists)")
-                skipped += 1
-            else:
+            if not _is_already_exists(e):
                 print(f"  [!] {email} — {e}")
                 failed += 1
+                continue
+            # User already exists — still verify the workshop entitlements are
+            # granted, since a pre-existing user may predate this setup.
+            print(f"  [~] {email} (already exists)")
+            skipped += 1
+            try:
+                existing = _find_user(w, email)
+                if existing is None:
+                    print(f"      [!] could not look up '{email}' to check entitlements")
+                    warnings += 1
+                elif _ensure_entitlements(w, existing) == 0:
+                    print("      entitlements already granted")
+            except Exception as ee:
+                print(f"      [!] entitlement check for '{email}' — {ee}")
+                warnings += 1
 
-    print(f"\n  Users: {success} created, {skipped} already existed, {failed} failed.")
+    summary = f"\n  Users: {success} created, {skipped} already existed, {failed} failed."
+    if warnings:
+        summary += f" ({warnings} entitlement warning(s) — see above.)"
+    print(summary)
+
+    # Participants reach Lakebase through the All-account-users group grant, so
+    # confirm that project permission is in place even when every user already
+    # existed (e.g. a --users-only re-run after the project was recreated).
+    if lakebase_name and verify_lakebase_permission:
+        print("\nVerifying Lakebase project permission for All account users...")
+        verify_lakebase_project_permission(w, lakebase_name)
 
 
 # ---------------------------------------------------------------------------
@@ -1051,7 +1164,8 @@ examples:
         action="store_true",
         help=(
             "If the Lakebase project already exists, skip creation and permission "
-            "updates (default: still apply CAN_MANAGE for All account users)"
+            "updates, including the --users-only verification pass "
+            "(default: still apply CAN_MANAGE for All account users)"
         ),
     )
     parser.add_argument(
@@ -1099,15 +1213,25 @@ examples:
     }
 
     if args.users_only:
-        provision_users(w, args.users_file)
+        # No Lakebase project is created in this run, so verifying its group
+        # permission here is the only way to ensure participants can reach it
+        # (unless the user opted out of Lakebase permission updates).
+        provision_users(
+            w,
+            args.users_file,
+            args.lakebase_name,
+            verify_lakebase_permission=not args.skip_lakebase_if_exists,
+        )
     elif args.lakebase_only:
         create_lakebase(w, args.lakebase_name, args.pg_version, **lakebase_kwargs)
     elif args.uc_only:
         create_uc_resources(w, args.catalog, **uc_kwargs)
     else:
+        # create_lakebase already ensures the group permission, so no separate
+        # verification pass is needed during user provisioning here.
         create_lakebase(w, args.lakebase_name, args.pg_version, **lakebase_kwargs)
         create_uc_resources(w, args.catalog, **uc_kwargs)
-        provision_users(w, args.users_file)
+        provision_users(w, args.users_file, args.lakebase_name)
 
     print("\nWorkshop setup complete.")
 
