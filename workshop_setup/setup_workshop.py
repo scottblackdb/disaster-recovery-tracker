@@ -6,6 +6,9 @@ provisions workspace users. By default also provisions an S3 bucket (us-west-2),
 IAM role, storage credential, and external location for the FEMA catalog (requires
 AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_SESSION_TOKEN).
 
+The Databricks CLI profile from ~/.databrickscfg can be passed with --profile/-p
+(e.g. --profile fema); if omitted, you are prompted to choose one.
+
 Requires: databricks-sdk, boto3  (pip install -r requirements.txt)
 """
 
