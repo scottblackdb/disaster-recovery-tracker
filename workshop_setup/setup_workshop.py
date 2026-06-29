@@ -2,9 +2,11 @@
 """Workshop setup script for the Disaster Recovery Tracker lab.
 
 Creates an autoscaling Lakebase (Postgres) project, Unity Catalog resources, and
-provisions workspace users. By default also provisions an S3 bucket (us-west-2),
-IAM role, storage credential, and external location for the FEMA catalog (requires
-AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_SESSION_TOKEN).
+provisions workspace users. When the workspace has UC storage credentials defined,
+the script also provisions an S3 bucket (us-west-2), IAM role, and external location
+for the FEMA catalog (requires AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and
+AWS_SESSION_TOKEN). When no storage credentials exist, catalogs are created without
+a managed location and no AWS resources are provisioned.
 
 The Databricks CLI profile from ~/.databrickscfg can be passed with --profile/-p
 (e.g. --profile fema); if omitted, you are prompted to choose one.
@@ -867,23 +869,19 @@ def _grant_aws_uc_storage_access(
     )
 
 
-def _first_external_location_url(w: WorkspaceClient) -> str | None:
-    """Return the URL of the first user-defined external location, or None.
+def _has_storage_credentials(w: WorkspaceClient) -> bool:
+    """Return True if any user-defined storage credentials exist in the workspace.
 
-    Skips workspace-internal/auto-managed locations (the metastore's
-    `__databricks_managed_storage_location` cannot be used as a catalog
-    MANAGED LOCATION — it's reserved for Default Storage).
+    Skips auto-managed credentials whose names start with '__'.
     """
     try:
-        for loc in w.external_locations.list():
-            if not loc.url:
-                continue
-            if loc.name and loc.name.startswith("__databricks_managed_"):
-                continue
-            return loc.url
+        return any(
+            True for cred in w.storage_credentials.list()
+            if not (cred.name and cred.name.startswith("__"))
+        )
     except Exception as e:
-        print(f"  Note: could not list external locations: {e}")
-    return None
+        print(f"  Note: could not list storage credentials: {e}")
+    return False
 
 
 def create_uc_resources(
@@ -895,17 +893,18 @@ def create_uc_resources(
     volume_name: str = DEFAULT_VOLUME_NAME,
     *,
     warehouse_id: str | None = None,
-    provision_aws_storage: bool = True,
 ) -> None:
     """Create the catalog, bronze/silver/volume schemas, the managed volume the
     backend uses, grant read access on the catalog to all account users, and
-    grant READ_VOLUME, WRITE_VOLUME, and MANAGE on the volume to all account users."""
+    grant READ_VOLUME, WRITE_VOLUME, and MANAGE on the volume to all account users.
+
+    When the workspace has no UC storage credentials, catalogs are created without
+    a managed location and no AWS resources are provisioned.
+    """
     print(f"\nCreating Unity Catalog resources (catalog: {catalog_name})...")
 
-    # Catalog MANAGED LOCATION: S3 + storage credential + external location.
-    # Use --skip-aws-provisioning to fall back without AWS env vars.
     aws_storage: AwsUcStorage | None = None
-    if provision_aws_storage:
+    if _has_storage_credentials(w):
         _require_aws_credentials()
         aws_storage = provision_aws_uc_storage_for_catalog(w, catalog_name)
         _grant_aws_uc_storage_access(
@@ -920,18 +919,8 @@ def create_uc_resources(
             warehouse_id,
         )
     else:
-        storage_root = _first_external_location_url(w)
-        if storage_root:
-            _create_idempotent(
-                lambda: w.catalogs.create(
-                    name=catalog_name, storage_root=storage_root
-                ),
-                created_msg=f"catalog '{catalog_name}' (storage_root={storage_root})",
-                exists_msg=f"catalog '{catalog_name}' (already exists)",
-                error_label=f"catalog '{catalog_name}'",
-            )
-        else:
-            _create_catalog_if_not_exists_sql(w, catalog_name, warehouse_id)
+        print("  No UC storage credentials found — creating catalog without managed location.")
+        _create_catalog_if_not_exists_sql(w, catalog_name, warehouse_id)
 
     # Schemas (bronze + silver + the schema that holds the volume; UC auto-creates
     # 'default' but we attempt it idempotently in case the catalog was created without one)
@@ -1115,7 +1104,7 @@ examples:
   # Re-run full setup but leave an existing Lakebase project untouched:
   python setup_workshop.py --skip-lakebase-if-exists --users-file participants.txt
 
-  # UC setup with AWS creds (S3 bucket + IAM role + storage credential + external location):
+  # UC setup when workspace has storage credentials (S3 + IAM provisioned automatically):
   export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_SESSION_TOKEN=...
   python setup_workshop.py --uc-only --profile vm-fema-1
         """,
@@ -1168,15 +1157,6 @@ examples:
             "(default: still apply CAN_MANAGE for All account users)"
         ),
     )
-    parser.add_argument(
-        "--skip-aws-provisioning",
-        action="store_true",
-        help=(
-            "Skip S3/IAM/UC provisioning (no AWS env vars required); use an existing "
-            "external location or CREATE CATALOG IF NOT EXISTS instead"
-        ),
-    )
-
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--lakebase-only",
@@ -1209,7 +1189,6 @@ examples:
     lakebase_kwargs = {"skip_if_exists": args.skip_lakebase_if_exists}
     uc_kwargs = {
         "warehouse_id": args.warehouse_id,
-        "provision_aws_storage": not args.skip_aws_provisioning,
     }
 
     if args.users_only:

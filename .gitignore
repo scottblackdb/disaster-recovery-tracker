@@ -148,3 +148,5 @@ __pycache__/
 *.egg-info/
 
 # App build — frontend/build/ is committed so Databricks Apps can serve it
+
+.databricks
