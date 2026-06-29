@@ -339,6 +339,9 @@ def create_lakebase(
         spec=postgres.ProjectSpec(
             display_name=display_name,
             pg_version=pg_version,
+            default_endpoint_settings=postgres.ProjectDefaultEndpointSettings(
+                suspend_timeout_duration=postgres.Duration(seconds=300),
+            ),
         )
     )
 
