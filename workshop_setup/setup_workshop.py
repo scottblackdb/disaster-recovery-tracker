@@ -1098,6 +1098,9 @@ examples:
   # Unity Catalog only (catalog, bronze schema, default schema, filestore volume):
   python setup_workshop.py --uc-only
 
+  # Infra only — Lakebase + Unity Catalog, no participants file needed:
+  python setup_workshop.py --infra-only
+
   # Users only:
   python setup_workshop.py --users-only --users-file participants.txt
 
@@ -1176,10 +1179,18 @@ examples:
         action="store_true",
         help="Only create the Unity Catalog catalog/schemas/volume",
     )
+    mode.add_argument(
+        "--infra-only",
+        action="store_true",
+        help=(
+            "Create the Lakebase project and Unity Catalog resources, skipping "
+            "user provisioning (no --users-file required)"
+        ),
+    )
 
     args = parser.parse_args()
 
-    needs_users_file = not (args.lakebase_only or args.uc_only)
+    needs_users_file = not (args.lakebase_only or args.uc_only or args.infra_only)
     if needs_users_file and not args.users_file:
         parser.error("--users-file is required unless --lakebase-only or --uc-only is specified")
 
@@ -1207,6 +1218,9 @@ examples:
     elif args.lakebase_only:
         create_lakebase(w, args.lakebase_name, args.pg_version, **lakebase_kwargs)
     elif args.uc_only:
+        create_uc_resources(w, args.catalog, **uc_kwargs)
+    elif args.infra_only:
+        create_lakebase(w, args.lakebase_name, args.pg_version, **lakebase_kwargs)
         create_uc_resources(w, args.catalog, **uc_kwargs)
     else:
         # create_lakebase already ensures the group permission, so no separate
