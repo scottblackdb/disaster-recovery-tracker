@@ -58,7 +58,7 @@ Notice the table names have a `_history` suffix added to them and are SCD TYPE 2
 
 ## Part C — Create the Silver views
 
-The bronze tables are SCD Type 2, so they include every historical version of every row plus the metadata columns `__START_AT` and `__END_AT`. The AI/BI dashboard (Lab 2.1) and the Genie space (Lab 3) are written against a clean, **current-state** view of the data — `fema.silver.*`. Create those views once now and the downstream labs will work without modification.
+The bronze tables are SCD Type 2, so they include every historical version of every row plus the metadata columns `__START_AT` and `__END_AT`. The AI/BI dashboard (Lab 2.1) and the Genie agent (Lab 3) are written against a clean, **current-state** view of the data — `fema.silver.*`. Create those views once now and the downstream labs will work without modification.
 
 1. In the **SQL Editor**, attached to a running SQL warehouse, run:
 
