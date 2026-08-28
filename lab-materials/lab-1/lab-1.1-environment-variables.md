@@ -51,7 +51,6 @@ Note the **resource key** on the SQL warehouse (the default is `sql-warehouse`).
     WAREHOUSE_ID = (os.getenv("WAREHOUSE_ID") or "").strip()
     ```
 
-5. Open `backend/document_ai_sql.py` and notice it uses `WAREHOUSE_ID` when it calls the **Statement Execution API**. That is how document extraction in the next lab knows *which warehouse* to run `ai_parse_document` and `ai_extract` on.
 
 The warehouse ID is an identifier, not a password. Authentication for those SQL calls comes from the app's service principal — you will see that in Part D.
 
@@ -98,11 +97,6 @@ For the first attached Postgres resource, Databricks Apps automatically injects 
     ```python
     return f"dbname={PGDATABASE} user={user} host={host} port={PGPORT} sslmode={PGSSLMODE}"
     ```
-
-On Databricks Apps, `PGHOST` and `PGUSER` are already set, so the app does not need a hostname copied into source control for each student's deployment.
-
-> **Do not dump the process environment or log secrets.** Variables such as `DATABRICKS_CLIENT_SECRET` and short-lived database tokens must never be pasted into chat, slides, or screenshots.
-
 ---
 
 ## Part D — Credentials are injected the same way
@@ -139,8 +133,6 @@ Every Databricks App gets a dedicated **service principal**. Databricks injects 
     That token is the PostgreSQL password for the connection. It is created at runtime, never committed to Git, and never stored in `app.yaml`. The connection pool recycles connections before the token expires so the next connect gets a fresh one.
 
 This is why Lab 1 asked you to grant the app SP database permissions. Injecting credentials **authenticates** the app; the role you granted **authorizes** it to read and write tables.
-
-> **⚠ Not a production pattern reminder.** Lab 1 used `databricks_superuser` to keep the workshop moving. A real app would use a narrower Postgres role. The injection mechanism is the same either way.
 
 ---
 
