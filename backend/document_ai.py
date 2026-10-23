@@ -21,7 +21,8 @@ from document_ai_sql import (
 
 def get_llm_client() -> OpenAI:
     token = get_auth_token()
-    return OpenAI(api_key=token, base_url=f"{w.config.host}/serving-endpoints")
+    host = (w.config.host or "").rstrip("/")
+    return OpenAI(api_key=token, base_url=f"{host}/ai-gateway/mlflow/v1")
 
 
 def _normalize_llm_text(raw_content: Any) -> str:
@@ -427,7 +428,7 @@ async def read_upload_or_url_to_bytes(
 
 
 def refine_description(raw_description: str) -> str:
-    """Use databricks-gpt-oss-120b to clean and clarify a damage description."""
+    """Use the configured Unity Gateway model API to clean and clarify a damage description."""
     client = get_llm_client()
 
     response = client.chat.completions.create(

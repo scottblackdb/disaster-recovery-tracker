@@ -8,9 +8,9 @@ command:
 
 env:
   - name: LLM_ENDPOINT
-    value: "databricks-llama-4-maverick"
+    value: "system.ai.llama-4-maverick"
   - name: REFINE_LLM_ENDPOINT
-    value: "databricks-gpt-oss-120b"
+    value: "system.ai.gpt-oss-120b"
   - name: ENDPOINT_NAME
     value: "projects/disaster-recovery-tracker/branches/production/endpoints/primary"
   - name: WAREHOUSE_ID

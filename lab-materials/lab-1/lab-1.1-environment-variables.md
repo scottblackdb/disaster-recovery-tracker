@@ -142,7 +142,7 @@ Look at these two entries in `app.yaml` side by side:
 
 ```yaml
 - name: LLM_ENDPOINT
-  value: "databricks-llama-4-maverick"
+  value: "system.ai.llama-4-maverick"
 - name: WAREHOUSE_ID
   valueFrom: sql-warehouse
 ```

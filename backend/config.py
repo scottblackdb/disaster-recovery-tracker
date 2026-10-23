@@ -1,8 +1,8 @@
 """Shared environment-backed settings."""
 import os
 
-LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "databricks-llama-4-maverick")
-REFINE_LLM_ENDPOINT = os.getenv("REFINE_LLM_ENDPOINT", "databricks-gpt-oss-120b")
+LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "system.ai.llama-4-maverick")
+REFINE_LLM_ENDPOINT = os.getenv("REFINE_LLM_ENDPOINT", "system.ai.gpt-oss-120b")
 
 # SQL warehouse ID for Statement Execution — read only from the WAREHOUSE_ID environment variable.
 WAREHOUSE_ID = (os.getenv("WAREHOUSE_ID") or "").strip()
