@@ -322,7 +322,7 @@ def _lakebase_on_already_exists(
 def create_lakebase(
     w: WorkspaceClient,
     display_name: str,
-    pg_version: int = 17,
+    pg_version: int = 18,
     *,
     skip_if_exists: bool = False,
 ) -> None:
