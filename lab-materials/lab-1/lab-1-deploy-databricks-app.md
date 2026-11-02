@@ -39,26 +39,27 @@ Skim these items so deployment choices make sense:
 
 **Ensure you are clicking Next when deploying the app and not Create button.**
 
-1. Click on the Create button. ![create app](./images/selectApp.jpeg)
+1. In the top right corner click the box of dots then Databricks Apps. <br> ![create app](./images/selectApp.jpeg)
 
-2. Select Custom App ![select app](./images/customApp.jpeg)
+2. On the right, click **`Create App`**. Do not click **`Create App Space`**.
 
+3. Select Custom App <br> ![select app](./images/customApp.jpeg)
 
-3. Name Your Application **fema-claims-tracker-< your name >** then click Next. The max. length for an application is 30 characters so you may have to shorten your name.
+4. Name Your Application **fema-claims-tracker-< your name >** then click Next. The max. length for an application is 30 characters so you may have to shorten your name.
 
-4. Configure Git Source. Add the git url of the project as the source for the app. Click Create App ![select app](./images/gitApp.jpeg)
+5. Configure Git Source. Add the git url of the project as the source for the app. Click Create App ![select app](./images/gitApp.jpeg)
 
-5. Configure App Resources. Grant access to Lakebase, the production branch, Sql Warehouse (any warehouse will work) and a Unity Catalog Volume. Do not change any other settings. ![select app](./images/finishApp.jpeg)
+6. Configure App Resources. Grant access to Lakebase, the production branch, Sql Warehouse (any warehouse will work) and a Unity Catalog Volume. Do not change any other settings. ![select app](./images/finishApp.jpeg)
    - **Lakebase** serves as the OLTP database and system of record for claims.
    - **SQL Warehouse** serves as the data warehouse for analytics and heavy reporting.
    - **UC Volume** serves as a filestore to hold non-tabular data such as images and files. Ensure the permissions are set to **Read And Write**.
 
    - Leave the app telemetry blank
 
-6. Click the Deploy button. Use **`main`** as the branch and then click Deploy ![select app](./images/deployApp.jpeg)
+7. Click the Deploy button. Use **`main`** as the branch and then click Deploy ![select app](./images/deployApp.jpeg)
 
-7. It will take 2 to 3 minutes for the initial deployment. Future deployments will be much faster. 
-8. The application will fail due to a lack of database permissions which you will next in the next part.
+8. It will take 2 to 3 minutes for the initial deployment. Future deployments will be much faster. 
+9. The application will fail due to a lack of database permissions which you will next in the next part.
 
 ---
 
